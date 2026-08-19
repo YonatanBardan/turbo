@@ -4,5 +4,7 @@ public record Shot(
 
     DetectionBox shooter,
     double makeProbability,
-    String time
+    String time,
+    int frameIndex,
+    boolean isMake
     ) {}

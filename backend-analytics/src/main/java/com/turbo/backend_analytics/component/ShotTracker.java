@@ -18,9 +18,9 @@ public class ShotTracker {
 
     @Autowired
     private TrajectoryMath trajectoryMath;
-    private static final int BALL = 1;
-    private static final int HOOP = 3;
-    private static final int SHOOTER = 4;
+    private static final int BALL = 0;
+    private static final int HOOP = 2;
+    private static final int SHOOTER = 3;
     private enum State {WAITING, VERIFYING, TRACKING}
 
     // Main:
@@ -111,7 +111,7 @@ public class ShotTracker {
             double lastBallY = session.ballPath.getLast().y();
             boolean bellowHoop = lastBallY > session.hoop.y();
             if (bellowHoop){
-                finalizeShot(session);
+                finalizeShot(session, session.ballPath.getLast().frameIndex());
                 session.state = State.WAITING;
                 session.ballPath.clear();
                 session.shooter = null;
@@ -134,13 +134,15 @@ public class ShotTracker {
     }
 
     // Updates: Shot's shooter's data and make probability of the shot
-    private void finalizeShot(TrackingSession session){
+    private void finalizeShot(TrackingSession session, int frameIndex){
         if (session.shooter == null || session.hoop == null)
             return;
 
         double makeProbability = evaluateMake(session);
         String shotTime = formatTime(session.currentShotTime);
-        Shot currShot = new Shot(session.shooter, makeProbability, shotTime);
+        boolean isMake = makeProbability > 0.65;
+
+        Shot currShot = new Shot(session.shooter, makeProbability, shotTime, frameIndex, isMake);
         session.finishedShots.add(currShot);
     }
 

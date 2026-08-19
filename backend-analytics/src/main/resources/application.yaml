@@ -1,3 +1,10 @@
 spring:
+  http:
+    codecs:
+      max-in-memory-size: 16MB # - Allows to buffer up to 16MB of RAM to read large JSON responses
   application:
     name: backend-analytics
+  servlet:
+    multipart:
+      max-file-size: 100MB      # - Limits a single uploaded file to a max of 100MB
+      max-request-size: 100MB   # - Limits the total size of the entire request to 100MB
