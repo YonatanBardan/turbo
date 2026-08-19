@@ -1,6 +1,7 @@
 package com.turbo.backend_analytics.controller;
 
 import com.turbo.backend_analytics.dto.TrackingResponse;
+import com.turbo.backend_analytics.dto.VideoAnalysisResponse;
 import com.turbo.backend_analytics.service.AiAnalysisService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +21,7 @@ public class VideoAnalysisController {
     }
 
     @PostMapping("/analyze")
-    public ResponseEntity<TrackingResponse> analyzeVideoFile(@RequestParam("file") MultipartFile file){
+    public ResponseEntity<VideoAnalysisResponse> analyzeVideoFile(@RequestParam("file") MultipartFile file){
 
         try {
 
@@ -30,7 +31,7 @@ public class VideoAnalysisController {
             String AbsolutePath = tempFile.getAbsolutePath();
 
             // - Activating the analyze service and delete from memory the temp video;
-            TrackingResponse response = aiAnalysisService.analyzeVideo(AbsolutePath);
+            VideoAnalysisResponse response = aiAnalysisService.analyzeVideo(AbsolutePath);
             tempFile.delete();
 
             return ResponseEntity.ok(response);

@@ -5,9 +5,9 @@ import java.util.List;
 // - Object translation returning from model process on a video
 public record VideoAnalysisResponse(
 
-    boolean success,
-    String message,
-    List<DetectionBox> boxes
+    double fps,
+    List<DetectionBox> boxes,
+    List<Shot> shots
 
     ){}
 
