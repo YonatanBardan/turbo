@@ -1,6 +1,5 @@
 package com.turbo.backend_analytics.controller;
 
-import com.turbo.backend_analytics.dto.TrackingResponse;
 import com.turbo.backend_analytics.dto.VideoAnalysisResponse;
 import com.turbo.backend_analytics.service.AiAnalysisService;
 import org.springframework.http.ResponseEntity;
@@ -30,10 +29,17 @@ public class VideoAnalysisController {
             file.transferTo(tempFile);
             String AbsolutePath = tempFile.getAbsolutePath();
 
-            // - Activating the analyze service and delete from memory the temp video;
+            // - Activating the analyzed service
             VideoAnalysisResponse response = aiAnalysisService.analyzeVideo(AbsolutePath);
-            tempFile.delete();
 
+            // - Activating the render service on the file and the shots stats
+            String finalVideoPath = aiAnalysisService.renderScoreboardVideo(AbsolutePath, response.shots());
+
+            // 🔍 Print only the shots list to your IDE console
+            System.out.println("Shots list: " + response.shots());
+
+            // - Delete from memory the temp file
+            tempFile.delete();
             return ResponseEntity.ok(response);
         }
 

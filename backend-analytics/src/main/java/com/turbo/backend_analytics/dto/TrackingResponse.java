@@ -4,7 +4,7 @@ import java.util.List;
 
 public record TrackingResponse(
         String status,
-        int totalFrames,
+        Integer totalFrames,
         List<DetectionBox> detections,
-        int fps
+        Integer fps
         ) {}
