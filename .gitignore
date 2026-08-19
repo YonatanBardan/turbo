@@ -1,0 +1,130 @@
+# =========================
+# GENERAL & OS
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.log
+
+# =========================
+# IDEs & EDITORS
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+.project
+.classpath
+.settings/
+
+# =========================
+# SECRETS & ENV VARS (CRITICAL)
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+
+# =========================
+# JAVA / SPRING BOOT
+# =========================
+# Compiled class files
+*.class
+
+# Log file
+*.log
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle-wrapper.jar
+out/
+
+# =========================
+# PYTHON (AI/ML/YOLO)
+# =========================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Distribution / packaging
+dist/
+develop-eggs/
+eggs/
+.eggs/
+parts/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyTorch / Machine Learning Models
+*.pt
+*.pth
+*.onnx
+*.weights
+dataset/
+datasets/
+
+# =========================
+# FRONTEND (React/Angular/Vue/Node)
+# =========================
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Build outputs
+.next/
+.nuxt/
+
+# npm and yarn debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
