@@ -1,7 +1,7 @@
 import cv2
 from ultralytics import YOLO
 
-model = YOLO("models/best-yolo26l-0.844_openvino_model")
+model = YOLO("models/best-Yolo26l-0.847-0.598-(0.6231)_openvino_model", task="detect")
 
 # - video processing function
 def process_video(file_path: str) -> tuple[float,list]:
@@ -17,13 +17,20 @@ def process_video(file_path: str) -> tuple[float,list]:
         fps = 30.0              # A default fps if not exist
 
     # Processing the video into frames one by one and not simultaneously
-    results = model(file_path, stream = True)
     boxes_data = []
+    frame_index = 0
 
-    for frame_index, frame_result in enumerate(results):
+    # Process the video frame-by-frame - which each frame being processed for boxes
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # verbose=False - Stopping YOLO from printing current state to the console
+        results = model(frame, verbose=False)
 
         # Extract all bounding boxes from the current frame
-        for box in frame_result.boxes:
+        for box in results[0].boxes:
 
             # Use xyxy to get (Top left and bottom right)
             xyxy = box.xyxy[0].tolist()
@@ -41,6 +48,7 @@ def process_video(file_path: str) -> tuple[float,list]:
                 "width": float(width),
                 "height": float(height)
             })
+        frame_index += 1
 
     cap.release()
     return fps, boxes_data
