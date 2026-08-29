@@ -1,3 +1,5 @@
+import traceback
+
 import cv2
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -16,9 +18,19 @@ class ShotData(BaseModel):
     frameIndex: int
     isMake: bool
 
+class DetectionData(BaseModel):
+    frameIndex: int
+    classId: int
+    x: float
+    y: float
+    width: float
+    height: float
+    confidence: float
+
 class RenderRequest(BaseModel):
     videoPath: str
     shots: list[ShotData]
+    detections: list[DetectionData]
 
 # -----------
 # API Routes
@@ -38,10 +50,14 @@ def analyze_video(request: VideoAnalysisRequest):
 @app.post("/render")
 def render_video(request: RenderRequest):
     try:
-        output_path = create_scoreboard_video(request.videoPath, request.shots)
-
+        output_path = (create_scoreboard_video
+                       (request.videoPath,
+                        request.shots,
+                        request.detections
+                        ))
         return {
             "outputPath": output_path,
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

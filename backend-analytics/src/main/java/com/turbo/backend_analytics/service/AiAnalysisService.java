@@ -53,10 +53,10 @@ public class AiAnalysisService {
         );
     }
 
-    public String renderScoreboardVideo(String absoluteVideoPath, List<Shot> finishedShots) {
+    public String renderScoreboardVideo(String absoluteVideoPath, List<Shot> finishedShots, List<DetectionBox> boxes) {
 
         // - Inserting the video path and the calculated shots into the DTO
-        RenderRequest requestBody = new RenderRequest(absoluteVideoPath, finishedShots);
+        RenderRequest requestBody = new RenderRequest(absoluteVideoPath, finishedShots, boxes);
 
         // - Sending the same format WebClient POST request
         RenderResponse pythonResponse = this.webClient.post()

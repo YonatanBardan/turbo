@@ -86,7 +86,7 @@ public class ShotTracker {
             session.ballPath.add(ball);
 
             // 2 - check for "ball going up" after released
-            if (session.ballPath.size() == 2){
+            if (session.ballPath.size() == 8){
                 if (ball.y() < session.ballPath.getFirst().y()) {
                     session.state = State.TRACKING;
                     session.currentShotTime = ball.frameIndex() / session.fps;
@@ -109,7 +109,7 @@ public class ShotTracker {
         // If Ball drops bellow hoopY calculate the Shot params and reset state
         if (!session.ballPath.isEmpty()){
             double lastBallY = session.ballPath.getLast().y();
-            boolean bellowHoop = lastBallY > session.hoop.y();
+            boolean bellowHoop = lastBallY > session.hoop.y() + session.hoop.height();
             if (bellowHoop){
                 finalizeShot(session, session.ballPath.getLast().frameIndex());
                 session.state = State.WAITING;
