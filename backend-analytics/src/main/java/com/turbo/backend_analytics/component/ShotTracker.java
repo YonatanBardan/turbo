@@ -1,23 +1,24 @@
 package com.turbo.backend_analytics.component;
 
-import com.turbo.backend_analytics.component.TrajectoryMath;
 import com.turbo.backend_analytics.dto.DetectionBox;
 import com.turbo.backend_analytics.dto.Shot;
-import com.turbo.backend_analytics.dto.TrackingResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
+
+import static com.turbo.backend_analytics.util.GeometryUtil.*;
 
 
 @Component
 public class ShotTracker {
 
     @Autowired
-    private TrajectoryMath trajectoryMath;
+    private ShotPhysicsEngine physicsEngine;
     private static final int BALL = 0;
     private static final int HOOP = 2;
     private static final int SHOOTER = 3;
@@ -64,12 +65,65 @@ public class ShotTracker {
     // -----------------------------------------------------
     // 1) Searching for a Shooter detection in the list received and updates session accordingly
     private void handleWaitingState(List<DetectionBox> boxes, TrackingSession session){
-        DetectionBox shooter = findClass(boxes, SHOOTER);
 
-        if (shooter != null){
-            session.state = State.VERIFYING;
-            session.shooter = shooter;
-            session.ballPath.clear();
+        // Add all shooters in the frame onto the list
+        List<DetectionBox> currentShooters = new ArrayList<>();
+        for (DetectionBox box : boxes) {
+            if (box.classId() == SHOOTER) {
+                currentShooters.add(box);
+            }
+        }
+
+        // If no shooters at all were found, reset counter
+        if (currentShooters.isEmpty()) {
+            session.shooterFrameCount = 0;
+            session.potentialShooter = null;
+            return;
+        }
+        // If shooters is empty add the highest conf shooter
+        if (session.shooterFrameCount == 0) {
+            DetectionBox bestShooter = currentShooters.get(0);
+            for (DetectionBox candidate : currentShooters){
+                if (candidate.confidence() > bestShooter.confidence())
+                    bestShooter = candidate;
+            }
+            session.potentialShooter = bestShooter;
+            session.shooterFrameCount = 1;
+            return;
+        }
+
+        DetectionBox matchedShooter = null;
+        for (DetectionBox candidate : currentShooters) {
+            if (isOverLap(candidate, session.potentialShooter)) {
+                matchedShooter = candidate;
+                break;
+            }
+        }
+
+        if (matchedShooter != null) {
+            session.potentialShooter = matchedShooter; // Update to their new slightly-moved box
+            session.shooterFrameCount++;
+            session.missedShooterFrames = 0;
+
+            // If there are 3 shooters detected frames move to verifying
+            if (session.shooterFrameCount >= 3) {
+                session.state = State.VERIFYING;
+                session.shooter = session.potentialShooter;
+                session.ballPath.clear();
+
+                session.shooterFrameCount = 0;
+                session.potentialShooter = null;
+            }
+        }
+        else {
+            // The shooter didn't matched
+            session.missedShooterFrames++;
+            // If we miss the shooter for more than 1 frames
+            if (session.missedShooterFrames > 1) {
+                session.shooterFrameCount = 0;
+                session.potentialShooter = null;
+                session.missedShooterFrames = 0;
+            }
         }
     }
 
@@ -79,13 +133,20 @@ public class ShotTracker {
 
         if (ball != null){
 
-            // 1 - check if the shooter / ball boxes are overlap
+            // Check if the first detected ball box is near the shooter - terminates rebounders and false shooter detections
+            if (session.ballPath.isEmpty() && !isNearShooter(ball, session.shooter)) {
+                session.state = State.WAITING;
+                session.shooterFrameCount = 0;
+                return;
+            }
+
+            // Check if the shooter / ball boxes are overlap
             if (isOverLap(ball, session.shooter))
                 return;
 
             session.ballPath.add(ball);
 
-            // 2 - check for "ball going up" after released
+            // Check for "ball going up" after released
             if (session.ballPath.size() == 8){
                 if (ball.y() < session.ballPath.getFirst().y()) {
                     session.state = State.TRACKING;
@@ -94,6 +155,8 @@ public class ShotTracker {
                 else {
                     session.state = State.WAITING;
                     session.ballPath.clear();
+                    session.shooterFrameCount = 0;
+                    session.potentialShooter = null;
                 }
             }
         }
@@ -111,76 +174,24 @@ public class ShotTracker {
             double lastBallY = session.ballPath.getLast().y();
             boolean bellowHoop = lastBallY > session.hoop.y() + session.hoop.height();
             if (bellowHoop){
-                finalizeShot(session, session.ballPath.getLast().frameIndex());
+                int finalFrame = session.ballPath.getLast().frameIndex();
+                Optional<Shot> possibleShot = physicsEngine.generateShot(
+                        session.hoop,
+                        session.shooter,
+                        session.ballPath,
+                        session.currentShotTime,
+                        finalFrame
+                );
+                possibleShot.ifPresent(shot -> session.finishedShots.add(shot));
+                // Reset the state
                 session.state = State.WAITING;
                 session.ballPath.clear();
                 session.shooter = null;
+                session.shooterFrameCount = 0;
+                session.potentialShooter = null;
             }
         }
     }
-
-    // -----------------------------------------------------
-    // Helper functions
-    // -----------------------------------------------------
-    // Returns: true if the 2 bounding boxes are overlapping
-    private boolean isOverLap(DetectionBox ball, DetectionBox shooter){
-        boolean notOverLap =
-                (ball.x() + ball.width() < shooter.x()) ||      // Ball not overlap from left
-                (ball.x() > shooter.x() + shooter.width()) ||   // Ball not overlap from right
-                (ball.y() + ball.height() < shooter.y()) ||     // Ball not overlap from top
-                (ball.y() > shooter.y() + shooter.height());    // Ball not overlap from bottom
-
-        return !notOverLap;    // If notOverLap is true then we need to return false
-    }
-
-    // Updates: Shot's shooter's data and make probability of the shot
-    private void finalizeShot(TrackingSession session, int frameIndex){
-        if (session.shooter == null || session.hoop == null)
-            return;
-
-        double makeProbability = evaluateMake(session);
-        String shotTime = formatTime(session.currentShotTime);
-        boolean isMake = makeProbability > 0.65;
-
-        Shot currShot = new Shot(session.shooter, makeProbability, shotTime, frameIndex, isMake);
-        session.finishedShots.add(currShot);
-    }
-
-    // Returns: calculated probability of a make shot
-    private double evaluateMake(TrackingSession session){
-        if (session.hoop == null || session.shooter == null) return 0.0;
-
-        // Calculate the center of the hoop
-        double hoopCenterX = session.hoop.x() + (session.hoop.width() / 2.0);
-        double hoopCenterY = session.hoop.y() + (session.hoop.height() / 2.0);
-
-        double predictedX = trajectoryMath.predictShotBallX(session.ballPath, hoopCenterY, session.shooter.x());
-        if (predictedX == -1)
-            return 0.0;
-
-        // Probability calculated by "Least Squared" which: (0, 0.95), (15, 0.7), (30, 0.5), (50, 0.05)
-        double distance = Math.abs(hoopCenterX - predictedX);
-        double probability = (-0.0001168 * distance * distance) - (0.01229 * distance) + 0.957;
-
-        return Math.max(0.0, probability);
-    }
-
-    // Returns: First DetectionBox that contains a box with the requested id
-    private DetectionBox findClass(List<DetectionBox> boxes, int classId){
-        return boxes.stream()
-                .filter(box -> box.classId() == classId)
-                .findFirst().orElse(null);
-    }
-
-    // Returns: Formatted mm:ss string ("01:12")
-    private String formatTime(double totalSec){
-        int secInt = (int) totalSec;
-        int minutes = secInt / 60;
-        int seconds = secInt % 60;
-
-        return String.format("%02d:%02d", minutes, seconds);
-    }
-
 
     // -----------------------------------------------------
     // Helper inner class
@@ -192,7 +203,12 @@ public class ShotTracker {
         DetectionBox shooter = null;                    // Location of the shooter
         List<DetectionBox> ballPath = new ArrayList<>();      // Ball's DetectionBoxes List since detecting a shooter
         List<Shot> finishedShots = new ArrayList<>();   // Final shots instances in the processed video
+
         double fps = 30.0;
         double currentShotTime = 0.0;
+
+        DetectionBox potentialShooter = null;
+        int shooterFrameCount = 0;
+        int missedShooterFrames = 0;
     }
 }
