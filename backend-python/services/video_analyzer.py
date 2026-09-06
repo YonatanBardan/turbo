@@ -1,4 +1,6 @@
+import logging
 import os
+import time
 
 import cv2
 from ultralytics import YOLO
@@ -6,6 +8,8 @@ from ultralytics import YOLO
 from services.identity_linker import IdentityLinker
 from services.reid_extractor import extract as extract_reid_vectors
 from services.reid_extractor import is_available as reid_is_available
+
+logger = logging.getLogger(__name__)
 
 _SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
 TRACKER_PATH = os.path.normpath(os.path.join(_SERVICES_DIR, "..", "custom_bytetrack.yaml"))
@@ -19,8 +23,10 @@ MAX_ASPECT = 4.5
 MIN_HEIGHT = 80
 CROP_WIDTH = 128
 CROP_HEIGHT = 256
-TOP_K_CROPS = 5
+TOP_K_CROPS = 15
+MIN_CROP_GAP_FRAMES = 15
 OVERLAP_PENALTY_IOU = 0.3
+REID_REFRESH_SECONDS = 2.0
 
 
 def _box_track_id(box) -> int:
@@ -71,9 +77,19 @@ def _crop_score(confidence, width, height, frame_w, frame_h, box_xyxy, other_pla
     return score
 
 
-def _keep_top_crop(gallery: dict, track_id: int, score: float, crop) -> None:
+def _keep_top_crop(gallery: dict, track_id: int, score: float, crop, frame_index: int) -> None:
     items = gallery.setdefault(track_id, [])
-    items.append((score, crop))
+    close_idx = None
+    for i, (_, existing_frame, _) in enumerate(items):
+        if abs(frame_index - existing_frame) < MIN_CROP_GAP_FRAMES:
+            close_idx = i
+            break
+    if close_idx is not None:
+        if score > items[close_idx][0]:
+            items[close_idx] = (score, frame_index, crop)
+            items.sort(key=lambda item: item[0], reverse=True)
+        return
+    items.append((score, frame_index, crop))
     items.sort(key=lambda item: item[0], reverse=True)
     del items[TOP_K_CROPS:]
 
@@ -100,8 +116,18 @@ def _rewrite_track_id(boxes_data: list, from_id: int, to_id: int) -> None:
 
 
 def _merge_galleries(gallery: dict, from_id: int, to_id: int) -> None:
-    for score, crop in gallery.pop(from_id, []):
-        _keep_top_crop(gallery, to_id, score, crop)
+    for score, frame_index, crop in gallery.pop(from_id, []):
+        _keep_top_crop(gallery, to_id, score, crop, frame_index)
+
+
+def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
+    if not crops:
+        return []
+    started = time.perf_counter()
+    vectors = extract_reid_vectors(crops)
+    stats["reid_ms"] += (time.perf_counter() - started) * 1000.0
+    stats["reid_crops"] += len(crops)
+    return vectors
 
 
 def process_video(file_path: str) -> tuple[float, list, list]:
@@ -118,17 +144,23 @@ def process_video(file_path: str) -> tuple[float, list, list]:
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     linker = IdentityLinker(frame_w)
     reid_ready = reid_is_available()
+    refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS))
 
     boxes_data = []
     crop_gallery = {}
+    last_reid_frame = {}
     frame_index = 0
+    stats = {"yolo_ms": 0.0, "reid_ms": 0.0, "reid_crops": 0}
+    started_at = time.perf_counter()
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
+        yolo_started = time.perf_counter()
         results = model.track(frame, persist=True, verbose=False, tracker=TRACKER_PATH)
+        stats["yolo_ms"] += (time.perf_counter() - yolo_started) * 1000.0
         result_boxes = results[0].boxes
         parsed = []
 
@@ -155,11 +187,11 @@ def process_video(file_path: str) -> tuple[float, list, list]:
             if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0
         }
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
+        extracted_this_frame = set()
 
         if reid_ready and new_ids:
             missing_ids = linker.missing_ids(current_ids)
-            candidates = []
-            candidate_vectors = {}
+            pending = []
             for p in parsed:
                 if p["classId"] != PLAYER_CLASS_ID or p["trackId"] not in new_ids:
                     continue
@@ -168,11 +200,21 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 crop = _crop_player(frame, p, frame_w, frame_h)
                 if crop is None:
                     continue
-                vectors = extract_reid_vectors([crop])
-                if not vectors:
-                    continue
-                candidate_vectors[p["trackId"]] = vectors[0]
-                candidates.append((p["trackId"], vectors[0], _center(p)))
+                pending.append((p["trackId"], crop, _center(p)))
+
+            candidate_vectors = {}
+            if pending:
+                vectors = _timed_extract([crop for _, crop, _ in pending], stats)
+                for (track_id, _, _), vector in zip(pending, vectors):
+                    candidate_vectors[track_id] = vector
+                    extracted_this_frame.add(track_id)
+                    last_reid_frame[track_id] = frame_index
+
+            candidates = [
+                (track_id, candidate_vectors[track_id], center)
+                for track_id, _, center in pending
+                if track_id in candidate_vectors
+            ]
 
             matches = linker.match_new_to_missing(candidates, missing_ids)
             for new_id, canonical_id in matches.items():
@@ -183,6 +225,8 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 vector = candidate_vectors.get(new_id)
                 if vector:
                     linker.remember_vector(canonical_id, vector)
+                    last_reid_frame[canonical_id] = frame_index
+                    extracted_this_frame.add(canonical_id)
 
             for p in parsed:
                 if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
@@ -207,6 +251,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
             if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0
         ]
 
+        refresh_pending = []
         for p in parsed:
             boxes_data.append({
                 "frameIndex": int(frame_index),
@@ -232,23 +277,51 @@ def process_video(file_path: str) -> tuple[float, list, list]:
             resized = _crop_player(frame, p, frame_w, frame_h)
             if resized is None:
                 continue
-            _keep_top_crop(crop_gallery, p["trackId"], score, resized)
+            _keep_top_crop(crop_gallery, p["trackId"], score, resized, frame_index)
 
-            if reid_ready and p["trackId"] not in linker.mean_vectors:
-                vectors = extract_reid_vectors([resized])
-                if vectors:
-                    linker.remember_vector(p["trackId"], vectors[0])
+            if not reid_ready or p["trackId"] in extracted_this_frame:
+                continue
+            needs_first = not linker.has_gallery(p["trackId"])
+            last = last_reid_frame.get(p["trackId"], -refresh_gap)
+            needs_refresh = (frame_index - last) >= refresh_gap
+            if needs_first or needs_refresh:
+                refresh_pending.append((p["trackId"], resized))
+
+        if refresh_pending:
+            vectors = _timed_extract([crop for _, crop in refresh_pending], stats)
+            for (track_id, _), vector in zip(refresh_pending, vectors):
+                linker.remember_vector(track_id, vector)
+                last_reid_frame[track_id] = frame_index
 
         frame_index += 1
 
     cap.release()
 
     players = []
+    all_crops = []
+    slices = []
     for track_id in sorted(crop_gallery.keys()):
-        crops = [crop for _, crop in crop_gallery[track_id]]
+        crops = [crop for _, _, crop in crop_gallery[track_id]]
+        start = len(all_crops)
+        all_crops.extend(crops)
+        slices.append((int(track_id), start, len(all_crops)))
+
+    all_vectors = _timed_extract(all_crops, stats) if all_crops else []
+    for track_id, start, end in slices:
         players.append({
-            "id": int(track_id),
-            "appearanceVectors": extract_reid_vectors(crops),
+            "id": track_id,
+            "appearanceVectors": all_vectors[start:end],
         })
+
+    elapsed = max(time.perf_counter() - started_at, 1e-6)
+    yolo_per_frame = stats["yolo_ms"] / max(frame_index, 1)
+    logger.info(
+        "process_video: frames=%s yolo_ms/frame=%.1f reid_crops=%s reid_ms=%.1f process_fps=%.2f",
+        frame_index,
+        yolo_per_frame,
+        stats["reid_crops"],
+        stats["reid_ms"],
+        frame_index / elapsed,
+    )
 
     return fps, boxes_data, players
