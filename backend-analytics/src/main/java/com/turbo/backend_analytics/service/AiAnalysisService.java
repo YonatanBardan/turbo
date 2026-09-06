@@ -1,5 +1,6 @@
 package com.turbo.backend_analytics.service;
 
+import com.turbo.backend_analytics.component.PlayerRosterBuilder;
 import com.turbo.backend_analytics.component.ShotTracker;
 import com.turbo.backend_analytics.dto.*;
 import org.springframework.stereotype.Service;
@@ -13,11 +14,16 @@ public class AiAnalysisService {
 
     private final WebClient webClient;
     private final ShotTracker shotTracker;
+    private final PlayerRosterBuilder playerRosterBuilder;
 
-    public AiAnalysisService(WebClient.Builder webClientBuilder, ShotTracker shotTracker){
-
+    public AiAnalysisService(
+            WebClient.Builder webClientBuilder,
+            ShotTracker shotTracker,
+            PlayerRosterBuilder playerRosterBuilder
+    ) {
         this.webClient = webClientBuilder.baseUrl("http://localhost:8000").build();
         this.shotTracker = shotTracker;
+        this.playerRosterBuilder = playerRosterBuilder;
     }
 
     // - Receives: full path of a video
@@ -42,14 +48,22 @@ public class AiAnalysisService {
         if (pythonResponse == null || pythonResponse.detections() == null)
             throw new RuntimeException("Failed to get valid tracking data from Python YOLO engine.");
 
+        double fps = pythonResponse.fps() != null ? pythonResponse.fps() : 30.0;
+
         List<Shot> shots = shotTracker.extractAllShots(
                     pythonResponse.detections(),
-                    pythonResponse.fps());
+                    fps);
+
+        List<Player> players = playerRosterBuilder.build(
+                pythonResponse.detections(),
+                pythonResponse.players()
+        );
 
         return new VideoAnalysisResponse(
-                pythonResponse.fps(),
+                fps,
                 pythonResponse.detections(),
-                shots
+                shots,
+                players
         );
     }
 

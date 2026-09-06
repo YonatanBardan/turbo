@@ -7,7 +7,7 @@ public record VideoAnalysisResponse(
 
     double fps,
     List<DetectionBox> boxes,
-    List<Shot> shots
+    List<Shot> shots,
+    List<Player> players
 
-    ){}
-
+){}

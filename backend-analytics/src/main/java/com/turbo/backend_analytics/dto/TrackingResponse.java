@@ -6,5 +6,6 @@ public record TrackingResponse(
         String status,
         Integer totalFrames,
         List<DetectionBox> detections,
-        Integer fps
-        ) {}
+        Double fps,
+        List<PlayerAppearance> players
+) {}

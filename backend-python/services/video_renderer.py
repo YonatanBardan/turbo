@@ -35,18 +35,16 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list) -> s
             det_timeline[idx] = []
         det_timeline[idx].append(d)
 
-    # Defines detection box classes colors
+    # Defines detection box classes colors (3-class: ball, hoop, player)
     COLOR_MAP = {
         0: (0, 140, 255),    # Ball: Orange
-        1: (0, 255, 255),    # Dribbler: Yellow
-        2: (0, 0, 255),      # Hoop: Red
-        3: (255, 0, 0)       # Shooter: Blue
+        1: (0, 0, 255),      # Hoop: Red
+        2: (0, 255, 255),    # Player: Yellow
     }
     CLASS_NAMES = {
         0: "Ball",
-        1: "Dribbler",
-        2: "Hoop",
-        3: "Shooter"
+        1: "Hoop",
+        2: "Player",
     }
 
     makes = 0
@@ -76,7 +74,11 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list) -> s
                 className = CLASS_NAMES.get(classId, "Unknown")
                 color = COLOR_MAP.get(classId, (0, 255, 0))
                 conf = float(d.confidence)
-                label = f"{className}{conf:.2f}"
+                track_id = getattr(d, "trackId", -1)
+                if classId == 2 and track_id is not None and int(track_id) >= 0:
+                    label = f"P{int(track_id)} {conf:.2f}"
+                else:
+                    label = f"{className} {conf:.2f}"
 
                 # 1. Draw the box - (frame to print on / top left point / bottom right point / color / thickness)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)

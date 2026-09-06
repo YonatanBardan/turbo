@@ -26,6 +26,7 @@ class DetectionData(BaseModel):
     width: float
     height: float
     confidence: float
+    trackId: int = -1
 
 class RenderRequest(BaseModel):
     videoPath: str
@@ -38,11 +39,12 @@ class RenderRequest(BaseModel):
 def analyze_video(request: VideoAnalysisRequest):
 
     try:
-        fps, boxes_data = process_video(request.videoPath)
+        fps, boxes_data, players = process_video(request.videoPath)
 
         return {
             "fps": fps,
-            "detections": boxes_data
+            "detections": boxes_data,
+            "players": players,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
