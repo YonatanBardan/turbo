@@ -18,6 +18,7 @@ import static com.turbo.backend_analytics.util.GeometryUtil.findAllClass;
 import static com.turbo.backend_analytics.util.GeometryUtil.findBallPossessor;
 import static com.turbo.backend_analytics.util.GeometryUtil.findClass;
 import static com.turbo.backend_analytics.util.GeometryUtil.findHighestConfidence;
+import static com.turbo.backend_analytics.util.GeometryUtil.findNearestPlayer;
 
 @Component
 public class BallStateTracker {
@@ -65,10 +66,10 @@ public class BallStateTracker {
             DetectionBox ball = findHighestConfidence(boxes, BALL);
             List<DetectionBox> players = findAllClass(boxes, PLAYER);
             DetectionBox possessor = ball != null ? findBallPossessor(ball, players) : null;
-            updatePossession(session, possessor, i);
+            updatePossession(session, possessor, ball, i);
 
             switch (session.phase) {
-                case POSSESSED -> handlePossessed(ball, session, i);
+                case POSSESSED -> handlePossessed(ball, players, session, i);
                 case IN_AIR -> handleInAir(ball, session, i);
                 case TRACKING_SHOT -> handleTrackingShot(ball, session, i);
             }
@@ -77,7 +78,12 @@ public class BallStateTracker {
         return new GameAnalysis(session.shots, freezeStats(session.stats));
     }
 
-    private void updatePossession(Session session, DetectionBox candidate, int frame) {
+    private void updatePossession(Session session, DetectionBox candidate, DetectionBox ball, int frame) {
+        session.frame = frame;
+        if (ball == null) {
+            // Occlusion (e.g. ball hidden behind the dribbler) is not a release.
+            return;
+        }
         if (candidate != null && candidate.trackId() >= 0) {
             session.lostFrames = 0;
             if (session.pendingPossessor != null && session.pendingPossessor.trackId() == candidate.trackId()) {
@@ -101,10 +107,9 @@ public class BallStateTracker {
                 session.pendingCount = 0;
             }
         }
-        session.frame = frame;
     }
 
-    private void handlePossessed(DetectionBox ball, Session session, int frame) {
+    private void handlePossessed(DetectionBox ball, List<DetectionBox> players, Session session, int frame) {
         if (session.committedPossessor != null) {
             session.lastPossessorId = session.committedPossessor.trackId();
             session.lastPossessorBox = session.committedPossessor;
@@ -115,7 +120,20 @@ public class BallStateTracker {
         }
         boolean stillHeld = session.committedPossessor != null
                 && session.lostFrames <= POSSESSION_LOST_FRAMES;
-        if (stillHeld || !session.holding) {
+        if (stillHeld) {
+            return;
+        }
+        if (!session.holding) {
+            if (session.lastPossessorId < 0 && session.lostFrames > POSSESSION_LOST_FRAMES) {
+                DetectionBox nearest = findNearestPlayer(ball, players);
+                if (nearest == null) {
+                    return;
+                }
+                session.lastPossessorId = nearest.trackId();
+                session.lastPossessorBox = nearest;
+                startInAir(session, frame);
+                session.ballPath.add(ball);
+            }
             return;
         }
         session.holding = false;

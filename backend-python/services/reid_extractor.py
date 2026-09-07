@@ -37,7 +37,10 @@ def _get_extractor():
         return _extractor
     _extractor_checked = True
     try:
-        from torchreid.utils import FeatureExtractor
+        try:
+            from torchreid.utils import FeatureExtractor
+        except ImportError:
+            from torchreid.reid.utils import FeatureExtractor
 
         device = "cpu"
         try:

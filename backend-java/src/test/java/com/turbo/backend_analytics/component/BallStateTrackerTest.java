@@ -29,12 +29,7 @@ class BallStateTrackerTest {
 
     @Test
     void creditsMadeShotToShooterAndAssistToPasser() {
-        when(physicsEngine.generateShot(any(), any(), anyList(), anyDouble(), anyInt()))
-                .thenAnswer(invocation -> {
-                    DetectionBox shooter = invocation.getArgument(1);
-                    int frame = invocation.getArgument(4);
-                    return Optional.of(new Shot(shooter, 0.9, "0:01", frame, true));
-                });
+        stubMadeShot();
 
         BallStateTracker tracker = new BallStateTracker(physicsEngine);
         GameAnalysis result = tracker.analyze(script(), 30.0);
@@ -51,6 +46,50 @@ class BallStateTrackerTest {
         assertEquals(1, passer.assists());
         assertEquals(1, shooter.shots().size());
         assertEquals(0, shooter.assists());
+    }
+
+    @Test
+    void creditsShotAfterBallHiddenBehindDribbler() {
+        stubMadeShot();
+
+        BallStateTracker tracker = new BallStateTracker(physicsEngine);
+        GameAnalysis result = tracker.analyze(hiddenThenShotScript(), 30.0);
+
+        assertEquals(1, result.shots().size());
+        Shot shot = result.shots().getFirst();
+        assertEquals(7, shot.shooterTrackId());
+        assertTrue(shot.isMake());
+        assertEquals(1, result.statsByPlayerId().get(7).shots().size());
+    }
+
+    private void stubMadeShot() {
+        when(physicsEngine.generateShot(any(), any(), anyList(), anyDouble(), anyInt()))
+                .thenAnswer(invocation -> {
+                    DetectionBox shooter = invocation.getArgument(1);
+                    int frame = invocation.getArgument(4);
+                    return Optional.of(new Shot(shooter, 0.9, "0:01", frame, true));
+                });
+    }
+
+    private List<DetectionBox> hiddenThenShotScript() {
+        List<DetectionBox> boxes = new ArrayList<>();
+        DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
+        DetectionBox shooter = player(0, 7, 320);
+
+        for (int f = 0; f <= 70; f++) {
+            boxes.add(copy(hoop, f));
+            boxes.add(copy(shooter, f));
+            if (f <= 8) {
+                boxes.add(ball(f, 330, 140));
+            } else if (f <= 40) {
+                // Ball occluded (back to camera) — no ball box.
+            } else if (f <= 56) {
+                boxes.add(ball(f, 250, 120 - (f - 40) * 6));
+            } else {
+                boxes.add(ball(f, 210, 70));
+            }
+        }
+        return boxes;
     }
 
     private List<DetectionBox> script() {

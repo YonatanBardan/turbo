@@ -1,12 +1,17 @@
 package com.turbo.backend_analytics.controller;
 
+import com.turbo.backend_analytics.dto.Player;
+import com.turbo.backend_analytics.dto.PlayerStatView;
 import com.turbo.backend_analytics.dto.VideoAnalysisResponse;
 import com.turbo.backend_analytics.service.AiAnalysisService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/video")
@@ -20,7 +25,7 @@ public class VideoAnalysisController {
     }
 
     @PostMapping("/analyze")
-    public ResponseEntity<VideoAnalysisResponse> analyzeVideoFile(@RequestParam("file") MultipartFile file){
+    public ResponseEntity<List<PlayerStatView>> analyzeVideoFile(@RequestParam("file") MultipartFile file){
 
         try {
 
@@ -40,17 +45,28 @@ public class VideoAnalysisController {
                     response.players()
             );
 
-            // Print only the shots list to your IDE console
             System.out.println("Shots list: " + response.shots());
+            System.out.println("Rendered video: " + finalVideoPath);
 
             // - Delete from memory the temp file
             tempFile.delete();
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(toPlayerStats(response.players()));
         }
 
         catch (IOException e){
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    private static List<PlayerStatView> toPlayerStats(List<Player> players) {
+        List<PlayerStatView> stats = new ArrayList<>();
+        if (players == null) {
+            return stats;
+        }
+        for (Player player : players) {
+            stats.add(new PlayerStatView(player.id(), player.stats()));
+        }
+        return stats;
     }
 }
 

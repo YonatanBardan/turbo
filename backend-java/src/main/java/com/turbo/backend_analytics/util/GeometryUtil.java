@@ -96,4 +96,23 @@ public class GeometryUtil {
         return bestOverlap != null ? bestOverlap : bestNear;
     }
 
+    public static DetectionBox findNearestPlayer(DetectionBox ball, List<DetectionBox> players) {
+        if (ball == null || players == null || players.isEmpty()) {
+            return null;
+        }
+        DetectionBox nearest = null;
+        double bestDist = Double.MAX_VALUE;
+        for (DetectionBox player : players) {
+            if (player.trackId() < 0) {
+                continue;
+            }
+            double dist = centerDistance(ball, player);
+            if (dist < bestDist) {
+                bestDist = dist;
+                nearest = player;
+            }
+        }
+        return nearest;
+    }
+
 }
