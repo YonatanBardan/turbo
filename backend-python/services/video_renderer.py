@@ -1,7 +1,84 @@
 import os
 import cv2
 
-def create_scoreboard_video(video_path: str, shots: list, detections: list) -> str:
+
+from typing import Optional
+
+
+def _player_ids_from_payload(shots: list, player_ids: Optional[list] = None) -> list:
+    ids = set()
+    if player_ids:
+        for player_id in player_ids:
+            ids.add(int(player_id))
+    for shot in shots:
+        shooter = int(getattr(shot, "shooterTrackId", -1))
+        passer = int(getattr(shot, "passerTrackId", -1))
+        if shooter >= 0:
+            ids.add(shooter)
+        if passer >= 0:
+            ids.add(passer)
+    return sorted(ids)
+
+
+def _apply_shots(stats: dict, shots_at_frame: list) -> str | None:
+    banner = None
+    for shot in shots_at_frame:
+        shooter = int(getattr(shot, "shooterTrackId", -1))
+        is_make = bool(shot.isMake)
+        if shooter >= 0:
+            row = stats.setdefault(shooter, {"fgm": 0, "fga": 0, "ast": 0})
+            row["fga"] += 1
+            if is_make:
+                row["fgm"] += 1
+            banner = f"P{shooter} {'MAKE' if is_make else 'MISS'}"
+        if bool(getattr(shot, "assist", False)):
+            passer = int(getattr(shot, "passerTrackId", -1))
+            if passer >= 0:
+                row = stats.setdefault(passer, {"fgm": 0, "fga": 0, "ast": 0})
+                row["ast"] += 1
+                if banner:
+                    banner = f"{banner}  AST P{passer}"
+    return banner
+
+
+def _draw_box_score(frame, stats: dict, ordered_ids: list[int], banner: str | None, video_height: int):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.45 if video_height < 720 else 0.55
+    thickness = 1
+    line_h = 18 if video_height < 720 else 22
+    pad = 8
+    header = "ID   FG    AST"
+    rows = [header]
+    for player_id in ordered_ids:
+        row = stats.get(player_id, {"fgm": 0, "fga": 0, "ast": 0})
+        rows.append(f"P{player_id:<3} {row['fgm']}-{row['fga']:<3} {row['ast']}")
+
+    widths = [cv2.getTextSize(text, font, scale, thickness)[0][0] for text in rows]
+    box_w = max(widths) + pad * 2 if widths else 120
+    box_h = pad * 2 + line_h * len(rows)
+    x1, y2 = 16, frame.shape[0] - 16
+    y1 = y2 - box_h
+    cv2.rectangle(frame, (x1, y1), (x1 + box_w, y2), (0, 0, 0), -1)
+    cv2.rectangle(frame, (x1, y1), (x1 + box_w, y2), (220, 220, 220), 1)
+
+    text_y = y1 + pad + line_h - 4
+    cv2.putText(frame, rows[0], (x1 + pad, text_y), font, scale, (180, 180, 180), thickness, cv2.LINE_AA)
+    text_y += line_h
+    for line in rows[1:]:
+        cv2.putText(frame, line, (x1 + pad, text_y), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        text_y += line_h
+
+    if banner:
+        b_scale = scale + 0.1
+        b_size = cv2.getTextSize(banner, font, b_scale, 2)[0]
+        bx1, by2 = x1, y1 - 8
+        by1 = by2 - b_size[1] - 12
+        cv2.rectangle(frame, (bx1, by1), (bx1 + b_size[0] + 16, by2), (0, 0, 0), -1)
+        color = (0, 220, 0) if "MAKE" in banner else (0, 80, 255)
+        cv2.putText(frame, banner, (bx1 + 8, by2 - 6), font, b_scale, color, 2, cv2.LINE_AA)
+
+
+def create_scoreboard_video(video_path: str, shots: list, detections: list, player_ids: Optional[list] = None) -> str:
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -13,44 +90,41 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list) -> s
     if not fps or fps <= 0:
         fps = 30.0
 
-    # Create the output file
     output_dir = r"C:\Users\yonat\OneDrive\Desktop\Stuff\semester 2\Projects\Code Name - Tourbo\Process\Basketball-Logic"
     os.makedirs(output_dir, exist_ok=True)
     base_name = os.path.basename(video_path)
     name_only, extension = os.path.splitext(base_name)
 
-    output_path = os.path.join(output_dir,f"{name_only}_stats{extension}")
+    output_path = os.path.join(output_dir, f"{name_only}_stats{extension}")
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (video_width, video_height))
 
-    # Convert Java's shot list into a fast Python dictionary: { frameIndex: isMake }
-    shot_timeline = {shot.frameIndex: shot.isMake for shot in shots}
+    shots_by_frame = {}
+    for shot in shots:
+        shots_by_frame.setdefault(int(shot.frameIndex), []).append(shot)
 
-    # Groups detections by frameIndex for fast lookups during the video loop
-    # Memory Cost of O(N) in the worst case (advantage for quicker search O(1))
+    ordered_ids = _player_ids_from_payload(shots, player_ids)
+    stats = {player_id: {"fgm": 0, "fga": 0, "ast": 0} for player_id in ordered_ids}
+
     det_timeline = {}
     for d in detections:
         idx = d.frameIndex
-        if idx not in det_timeline:
-            det_timeline[idx] = []
-        det_timeline[idx].append(d)
+        det_timeline.setdefault(idx, []).append(d)
 
-    # Defines detection box classes colors
     COLOR_MAP = {
-        0: (0, 140, 255),    # Ball: Orange
-        1: (0, 255, 255),    # Dribbler: Yellow
-        2: (0, 0, 255),      # Hoop: Red
-        3: (255, 0, 0)       # Shooter: Blue
+        0: (0, 140, 255),
+        1: (0, 0, 255),
+        2: (0, 255, 255),
     }
     CLASS_NAMES = {
         0: "Ball",
-        1: "Dribbler",
-        2: "Hoop",
-        3: "Shooter"
+        1: "Hoop",
+        2: "Player",
     }
 
-    makes = 0
-    attempts = 0
+    banner = None
+    banner_until = -1
+    banner_hold = max(12, int(fps * 0.6))
     frame_index = 0
 
     while True:
@@ -58,13 +132,10 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list) -> s
         if not ret:
             break
 
-        # Update attempts if there is a shot listed to the frame and "make" in a same manner
-        if frame_index in shot_timeline:
-            attempts += 1
-            if shot_timeline[frame_index]:  # If isMake is True
-                makes += 1
+        if frame_index in shots_by_frame:
+            banner = _apply_shots(stats, shots_by_frame[frame_index])
+            banner_until = frame_index + banner_hold
 
-        # Draw Detection Boxes
         if frame_index in det_timeline:
             for d in det_timeline[frame_index]:
                 x = int(d.x)
@@ -76,32 +147,18 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list) -> s
                 className = CLASS_NAMES.get(classId, "Unknown")
                 color = COLOR_MAP.get(classId, (0, 255, 0))
                 conf = float(d.confidence)
-                label = f"{className}{conf:.2f}"
+                track_id = getattr(d, "trackId", -1)
+                if classId == 2 and track_id is not None and int(track_id) >= 0:
+                    label = f"P{int(track_id)} {conf:.2f}"
+                else:
+                    label = f"{className} {conf:.2f}"
 
-                # 1. Draw the box - (frame to print on / top left point / bottom right point / color / thickness)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-
-                # 2. Draw the text label - (frame / label / bottom left / font / font scale / color / thickness)
                 cv2.putText(frame, label, (x, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # Draw Scoreboard
-        score_text = f"SHOTS: {makes} / {attempts}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.5
-        thickness = 4
-
-        text_size = cv2.getTextSize(score_text, font, font_scale, thickness)[0]
-        text_x = video_width - text_size[0] - 30
-        text_y = video_height - 30
-
-        # Black background box
-        box_coords_1 = (text_x - 15, text_y - text_size[1] - 15)
-        box_coords_2 = (text_x + text_size[0] + 15, text_y + 15)
-        cv2.rectangle(frame, box_coords_1, box_coords_2, (0, 0, 0), -1)
-
-        # White text
-        cv2.putText(frame, score_text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness)
-        cv2.putText(frame, f"Frame: {frame_index}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        live_banner = banner if frame_index <= banner_until else None
+        _draw_box_score(frame, stats, ordered_ids, live_banner, video_height)
+        cv2.putText(frame, f"Frame: {frame_index}", (16, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         out.write(frame)
         frame_index += 1

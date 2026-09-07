@@ -17,6 +17,9 @@ class VideoAnalysisRequest(BaseModel):
 class ShotData(BaseModel):
     frameIndex: int
     isMake: bool
+    shooterTrackId: int = -1
+    passerTrackId: int = -1
+    assist: bool = False
 
 class DetectionData(BaseModel):
     frameIndex: int
@@ -26,11 +29,13 @@ class DetectionData(BaseModel):
     width: float
     height: float
     confidence: float
+    trackId: int = -1
 
 class RenderRequest(BaseModel):
     videoPath: str
     shots: list[ShotData]
     detections: list[DetectionData]
+    playerIds: list[int] = []
 
 # -----------
 # API Routes
@@ -38,11 +43,12 @@ class RenderRequest(BaseModel):
 def analyze_video(request: VideoAnalysisRequest):
 
     try:
-        fps, boxes_data = process_video(request.videoPath)
+        fps, boxes_data, players = process_video(request.videoPath)
 
         return {
             "fps": fps,
-            "detections": boxes_data
+            "detections": boxes_data,
+            "players": players,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -50,11 +56,12 @@ def analyze_video(request: VideoAnalysisRequest):
 @app.post("/render")
 def render_video(request: RenderRequest):
     try:
-        output_path = (create_scoreboard_video
-                       (request.videoPath,
-                        request.shots,
-                        request.detections
-                        ))
+        output_path = create_scoreboard_video(
+            request.videoPath,
+            request.shots,
+            request.detections,
+            request.playerIds,
+        )
         return {
             "outputPath": output_path,
         }
