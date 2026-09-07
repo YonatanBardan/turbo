@@ -95,9 +95,21 @@ public class AiAnalysisService {
         return withStats;
     }
 
-    public String renderScoreboardVideo(String absoluteVideoPath, List<Shot> finishedShots, List<DetectionBox> boxes) {
+    public String renderScoreboardVideo(
+            String absoluteVideoPath,
+            List<Shot> finishedShots,
+            List<DetectionBox> boxes,
+            List<Player> players
+    ) {
 
-        RenderRequest requestBody = new RenderRequest(absoluteVideoPath, finishedShots, boxes);
+        List<Integer> playerIds = new ArrayList<>();
+        if (players != null) {
+            for (Player player : players) {
+                playerIds.add(player.id());
+            }
+        }
+
+        RenderRequest requestBody = new RenderRequest(absoluteVideoPath, finishedShots, boxes, playerIds);
 
         RenderResponse pythonResponse = this.webClient.post()
                 .uri("/render")

@@ -36,7 +36,8 @@ public class VideoAnalysisController {
             String finalVideoPath = aiAnalysisService.renderScoreboardVideo(
                     AbsolutePath,
                     response.shots(),
-                    response.boxes()
+                    response.boxes(),
+                    response.players()
             );
 
             // Print only the shots list to your IDE console

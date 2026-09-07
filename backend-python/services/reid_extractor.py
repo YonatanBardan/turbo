@@ -6,7 +6,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
-WEIGHTS_PATH = os.path.join(_SERVICES_DIR, "..", "models", "prtreid.pth")
+WEIGHTS_PATH = os.path.normpath(
+    os.path.join(_SERVICES_DIR, "..", "models", "osnet_ain_x1_0_msmt17_256x128.pth")
+)
+MODEL_NAME = "osnet_ain_x1_0"
 
 _warned_missing_weights = False
 _warned_extract_failed = False
@@ -17,14 +20,14 @@ _extractor_checked = False
 def _log_missing_weights() -> None:
     global _warned_missing_weights
     if not _warned_missing_weights:
-        logger.warning("PRT-ReID weights not found at %s; appearance vectors will be empty.", WEIGHTS_PATH)
+        logger.warning("ReID weights not found at %s; appearance vectors will be empty.", WEIGHTS_PATH)
         _warned_missing_weights = True
 
 
 def _log_extract_failed(exc: Exception) -> None:
     global _warned_extract_failed
     if not _warned_extract_failed:
-        logger.warning("PRT-ReID extraction failed (%s); appearance vectors will be empty.", exc)
+        logger.warning("ReID extraction failed (%s); appearance vectors will be empty.", exc)
         _warned_extract_failed = True
 
 
@@ -46,8 +49,8 @@ def _get_extractor():
             pass
 
         _extractor = FeatureExtractor(
-            model_name="osnet_x1_0",
-            model_path=os.path.normpath(WEIGHTS_PATH),
+            model_name=MODEL_NAME,
+            model_path=WEIGHTS_PATH,
             device=device,
         )
     except Exception as exc:

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
 TRACKER_PATH = os.path.normpath(os.path.join(_SERVICES_DIR, "..", "custom_bytetrack.yaml"))
 
-model = YOLO("models/best-yolo26l-version2.1-0.89-0.59_openvino_model", task="detect")
+model = YOLO("models/best-detectionV2.2-0.907-0.592_openvino_model", task="detect")
 
 PLAYER_CLASS_ID = 2
 EDGE_MARGIN = 4

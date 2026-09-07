@@ -5,5 +5,6 @@ import java.util.List;
 public record RenderRequest(
         String videoPath,
         List<Shot> shots,
-        List<DetectionBox> detections
+        List<DetectionBox> detections,
+        List<Integer> playerIds
 ) {}
