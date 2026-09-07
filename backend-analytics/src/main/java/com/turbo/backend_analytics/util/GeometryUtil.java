@@ -24,16 +24,76 @@ public class GeometryUtil {
         return !notOverLap;    // If notOverLap is true then we need to return false
     }
 
-    // Checks if the ball is in the "Release zone"
     public static boolean isNearShooter(DetectionBox ball, DetectionBox shooter){
-        // Expand the shooter's bounding box by their own width / height
-        double marginX = shooter.width() * 0.2;
-        double marginY = shooter.height() * 0.5;
+        return isNearPlayer(ball, shooter);
+    }
 
-        boolean nearX = ball.x() >= (shooter.x() - marginX) && ball.x() <= (shooter.x() + shooter.width() + marginX);
-        boolean nearY = ball.y() >= (shooter.y() - marginY) && ball.y() <= (shooter.y() + shooter.height());
+    public static boolean isNearPlayer(DetectionBox ball, DetectionBox player) {
+        double marginX = player.width() * 0.25;
+        double marginY = player.height() * 0.5;
+
+        boolean nearX = ball.x() >= (player.x() - marginX) && ball.x() <= (player.x() + player.width() + marginX);
+        boolean nearY = ball.y() >= (player.y() - marginY) && ball.y() <= (player.y() + player.height());
 
         return nearX && nearY;
+    }
+
+    public static List<DetectionBox> findAllClass(List<DetectionBox> boxes, int classId) {
+        return boxes.stream()
+                .filter(box -> box.classId() == classId)
+                .toList();
+    }
+
+    public static DetectionBox findHighestConfidence(List<DetectionBox> boxes, int classId) {
+        DetectionBox best = null;
+        for (DetectionBox box : boxes) {
+            if (box.classId() != classId) {
+                continue;
+            }
+            if (best == null || box.confidence() > best.confidence()) {
+                best = box;
+            }
+        }
+        return best;
+    }
+
+    public static double centerX(DetectionBox box) {
+        return box.x() + (box.width() / 2.0);
+    }
+
+    public static double centerY(DetectionBox box) {
+        return box.y() + (box.height() / 2.0);
+    }
+
+    public static double centerDistance(DetectionBox a, DetectionBox b) {
+        double dx = centerX(a) - centerX(b);
+        double dy = centerY(a) - centerY(b);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    public static DetectionBox findBallPossessor(DetectionBox ball, List<DetectionBox> players) {
+        if (ball == null || players == null || players.isEmpty()) {
+            return null;
+        }
+        DetectionBox bestOverlap = null;
+        double bestOverlapDist = Double.MAX_VALUE;
+        DetectionBox bestNear = null;
+        double bestNearDist = Double.MAX_VALUE;
+
+        for (DetectionBox player : players) {
+            if (player.trackId() < 0) {
+                continue;
+            }
+            double dist = centerDistance(ball, player);
+            if (isOverLap(ball, player) && dist < bestOverlapDist) {
+                bestOverlap = player;
+                bestOverlapDist = dist;
+            } else if (isNearPlayer(ball, player) && dist < bestNearDist) {
+                bestNear = player;
+                bestNearDist = dist;
+            }
+        }
+        return bestOverlap != null ? bestOverlap : bestNear;
     }
 
 }
