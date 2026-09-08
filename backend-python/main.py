@@ -20,6 +20,7 @@ class ShotData(BaseModel):
     shooterTrackId: int = -1
     passerTrackId: int = -1
     assist: bool = False
+    makeProbability: float = 0.0
 
 class DetectionData(BaseModel):
     frameIndex: int

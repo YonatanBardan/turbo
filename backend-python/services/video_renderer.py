@@ -25,12 +25,15 @@ def _apply_shots(stats: dict, shots_at_frame: list) -> str | None:
     for shot in shots_at_frame:
         shooter = int(getattr(shot, "shooterTrackId", -1))
         is_make = bool(shot.isMake)
+        probability = float(getattr(shot, "makeProbability", 0.0))
+        percent = max(0, min(100, int(round(probability * 100))))
         if shooter >= 0:
             row = stats.setdefault(shooter, {"fgm": 0, "fga": 0, "ast": 0})
             row["fga"] += 1
             if is_make:
                 row["fgm"] += 1
-            banner = f"P{shooter} {'MAKE' if is_make else 'MISS'}"
+            result = "MAKE" if is_make else "MISS"
+            banner = f"P{shooter}  {percent}%  {result}"
         if bool(getattr(shot, "assist", False)):
             passer = int(getattr(shot, "passerTrackId", -1))
             if passer >= 0:
