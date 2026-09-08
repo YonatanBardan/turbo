@@ -115,4 +115,16 @@ public class GeometryUtil {
         return nearest;
     }
 
+    public static DetectionBox findPlayerByTrackId(List<DetectionBox> players, int trackId) {
+        if (players == null || trackId < 0) {
+            return null;
+        }
+        for (DetectionBox player : players) {
+            if (player.trackId() == trackId) {
+                return player;
+            }
+        }
+        return null;
+    }
+
 }
