@@ -32,6 +32,7 @@ public class BallStateTracker {
     private static final double DISTANCE_GROW_PX = 3.0;
     private static final int SHOT_RISE_MIN_POINTS = 3;
     private static final double SHOT_RISE_PX = 18.0;
+    private static final double SHOT_SHOULDER_RATIO = 0.30;
     private static final int LOOSE_SAME_HOLDER_DELAY = 2;
     private static final double ASSIST_WINDOW_SECONDS = 3.0;
 
@@ -48,7 +49,6 @@ public class BallStateTracker {
         session.fps = fps > 0 ? fps : 30.0;
         session.hoop = findClass(detections, HOOP);
         session.assistWindowFrames = Math.max(1, (int) Math.round(session.fps * ASSIST_WINDOW_SECONDS));
-        session.shotTimeoutFrames = Math.max(20, (int) Math.round(session.fps * 2.0));
 
         if (detections == null || detections.isEmpty() || session.hoop == null) {
             return new GameAnalysis(session.shots, freezeStats(session.stats));
@@ -58,7 +58,8 @@ public class BallStateTracker {
                 .collect(Collectors.groupingBy(DetectionBox::frameIndex));
         int maxFrame = frames.keySet().stream().max(Integer::compareTo).orElse(0);
 
-        for (int i = 0; i <= maxFrame; i++) {
+        int i = 0;
+        while (i <= maxFrame) {
             List<DetectionBox> boxes = frames.getOrDefault(i, List.of());
             DetectionBox hoop = findHighestConfidence(boxes, HOOP);
             if (hoop != null) {
@@ -72,8 +73,17 @@ public class BallStateTracker {
             switch (session.phase) {
                 case POSSESSED -> handlePossessed(ball, players, session, i);
                 case LOOSE -> handleLoose(ball, players, session, i);
-                case SHOT -> handleShot(ball, players, session, i);
+                case SHOT -> { }
             }
+
+            if (session.phase == Phase.SHOT) {
+                handleShot(frames, i, maxFrame, session);
+                i = session.resumeAt;
+                session.resumeAt = -1;
+                continue;
+            }
+
+            i++;
         }
 
         return new GameAnalysis(session.shots, freezeStats(session.stats));
@@ -121,7 +131,7 @@ public class BallStateTracker {
             session.ballPath.add(ball);
         }
 
-        if (ball != null && yReducedSignificantly(session)) {
+        if (ball != null && yReducedSignificantly(session, players)) {
             enterShot(session, frame);
             return;
         }
@@ -137,25 +147,30 @@ public class BallStateTracker {
         enterPossessed(session, catcher, !sameHolder);
     }
 
-    private void handleShot(DetectionBox ball, List<DetectionBox> players, Session session, int frame) {
-        if (ball != null) {
-            session.ballPath.add(ball);
-            session.shotPeakY = Math.min(session.shotPeakY, centerY(ball));
+    private void handleShot(
+            Map<Integer, List<DetectionBox>> frames,
+            int frame,
+            int maxFrame,
+            Session session
+    ) {
+        ShotPhysicsEngine.ShotFlight flight = physicsEngine.analyzeFlight(
+                session.hoop,
+                frames,
+                frame,
+                maxFrame,
+                session.ballPath
+        );
+        if (flight != null && flight.ballPath() != null) {
+            session.ballPath.clear();
+            session.ballPath.addAll(flight.ballPath());
         }
+        int endFrame = flight != null ? flight.endFrame() : frame;
+        finishShot(session, endFrame);
 
-        DetectionBox catcher = ball != null ? findBallPossessor(ball, players) : null;
-        if (catcher != null && catcher.trackId() == session.lastHolderId) {
-            catcher = null;
-        }
-        boolean comingDown = ball != null && centerY(ball) > session.shotPeakY + 12.0;
-        boolean timedOut = (frame - session.shotStartFrame) >= session.shotTimeoutFrames;
-
-        if (catcher != null || comingDown || timedOut) {
-            finishShot(session, frame);
-            if (catcher != null) {
-                enterPossessed(session, catcher, catcher.trackId() != session.lastHolderId);
-            }
-        }
+        List<DetectionBox> endBoxes = frames.getOrDefault(endFrame, List.of());
+        DetectionBox ball = findHighestConfidence(endBoxes, BALL);
+        enterLoose(session, ball, endFrame);
+        session.resumeAt = endFrame;
     }
 
     private void enterPossessed(Session session, DetectionBox holder, boolean fromPass) {
@@ -175,38 +190,53 @@ public class BallStateTracker {
     private void enterLoose(Session session, DetectionBox ball, int frame) {
         session.phase = Phase.LOOSE;
         session.looseStartFrame = frame;
-        session.looseStartY = centerY(ball);
         session.lastHolderId = session.holder != null ? session.holder.trackId() : session.lastHolderId;
         session.lastHolderBox = session.holder != null ? session.holder : session.lastHolderBox;
         session.holder = null;
         session.lastDistance = -1;
         session.growingFrames = 0;
         session.ballPath.clear();
-        session.ballPath.add(ball);
+        if (ball != null) {
+            session.looseStartY = centerY(ball);
+            session.ballPath.add(ball);
+        }
     }
 
     private void enterShot(Session session, int frame) {
         session.phase = Phase.SHOT;
-        session.shotStartFrame = frame;
         session.shotTime = frame / session.fps;
-        session.shotPeakY = session.ballPath.isEmpty()
-                ? session.looseStartY
-                : centerY(session.ballPath.getLast());
     }
 
-    private boolean yReducedSignificantly(Session session) {
+    private boolean yReducedSignificantly(Session session, List<DetectionBox> players) {
         if (session.ballPath.size() < SHOT_RISE_MIN_POINTS) {
             return false;
         }
         DetectionBox last = session.ballPath.getLast();
-        return session.looseStartY - centerY(last) >= SHOT_RISE_PX;
+        boolean movedUp = session.looseStartY - centerY(last) >= SHOT_RISE_PX;
+        if (!movedUp) {
+            return false;
+        }
+
+        DetectionBox shooter = findPlayerByTrackId(players, session.lastHolderId);
+        if (shooter == null) {
+            shooter = session.lastHolderBox;
+        }
+        if (shooter == null) {
+            return true;
+        }
+
+        // Dribble bounce comes up in the legs/torso. A shot is released around the shoulders.
+        double shoulderLine = shooter.y() + (shooter.height() * SHOT_SHOULDER_RATIO);
+        if (centerY(last) > shoulderLine) {
+            return false;
+        }
+        return true;
     }
 
     private void finishShot(Session session, int finalFrame) {
         DetectionBox shooterBox = session.lastHolderBox;
         int shooterId = session.lastHolderId;
         if (shooterBox == null || session.hoop == null || shooterId < 0) {
-            resetToPossessed(session);
             return;
         }
 
@@ -227,7 +257,6 @@ public class BallStateTracker {
             session.shots.add(credited);
             creditStats(session, credited);
         }
-        resetToPossessed(session);
     }
 
     private void creditStats(Session session, Shot shot) {
@@ -236,14 +265,6 @@ public class BallStateTracker {
         if (shot.assist() && shot.passerTrackId() >= 0) {
             session.stats.computeIfAbsent(shot.passerTrackId(), id -> new MutableStats()).assists++;
         }
-    }
-
-    private void resetToPossessed(Session session) {
-        session.phase = Phase.POSSESSED;
-        session.holder = null;
-        session.lastDistance = -1;
-        session.growingFrames = 0;
-        session.ballPath.clear();
     }
 
     private Map<Integer, PlayerStats> freezeStats(Map<Integer, MutableStats> mutable) {
@@ -272,15 +293,13 @@ public class BallStateTracker {
         double shotTime = 0.0;
         double lastDistance = -1;
         double looseStartY;
-        double shotPeakY = Double.MAX_VALUE;
         int frame;
         int growingFrames;
         int lastHolderId = -1;
         int lastPasserId = -1;
         int lastPassFrame = -1;
         int looseStartFrame;
-        int shotStartFrame;
         int assistWindowFrames = 90;
-        int shotTimeoutFrames = 60;
+        int resumeAt = -1;
     }
 }

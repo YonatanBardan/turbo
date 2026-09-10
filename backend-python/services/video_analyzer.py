@@ -94,10 +94,6 @@ def _keep_top_crop(gallery: dict, track_id: int, score: float, crop, frame_index
     del items[TOP_K_CROPS:]
 
 
-def _center(box: dict) -> tuple[float, float]:
-    return (box["x1"] + box["x2"]) / 2.0, (box["y1"] + box["y2"]) / 2.0
-
-
 def _crop_player(frame, box: dict, frame_w: int, frame_h: int):
     x1i, y1i = max(0, int(box["x1"])), max(0, int(box["y1"]))
     x2i, y2i = min(frame_w, int(box["x2"])), min(frame_h, int(box["y2"]))
@@ -142,7 +138,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    linker = IdentityLinker(frame_w)
+    linker = IdentityLinker()
     reid_ready = reid_is_available()
     refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS))
 
@@ -189,59 +185,48 @@ def process_video(file_path: str) -> tuple[float, list, list]:
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
         extracted_this_frame = set()
 
-        if reid_ready and new_ids:
-            missing_ids = linker.missing_ids(current_ids)
-            pending = []
+        if reid_ready:
+            linker.observe_new_ids(new_ids, current_ids)
+            linker.drop_visible_candidates(current_ids)
+
+            pending_extract = []
             for p in parsed:
-                if p["classId"] != PLAYER_CLASS_ID or p["trackId"] not in new_ids:
+                if p["classId"] != PLAYER_CLASS_ID or not linker.needs_pending_vector(p["trackId"]):
                     continue
                 if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
                     continue
                 crop = _crop_player(frame, p, frame_w, frame_h)
                 if crop is None:
                     continue
-                pending.append((p["trackId"], crop, _center(p)))
+                pending_extract.append((p["trackId"], crop))
 
-            candidate_vectors = {}
-            if pending:
-                vectors = _timed_extract([crop for _, crop, _ in pending], stats)
-                for (track_id, _, _), vector in zip(pending, vectors):
-                    candidate_vectors[track_id] = vector
+            if pending_extract:
+                vectors = _timed_extract([crop for _, crop in pending_extract], stats)
+                for (track_id, _), vector in zip(pending_extract, vectors):
+                    linker.remember_vector(track_id, vector)
                     extracted_this_frame.add(track_id)
                     last_reid_frame[track_id] = frame_index
 
-            candidates = [
-                (track_id, candidate_vectors[track_id], center)
-                for track_id, _, center in pending
-                if track_id in candidate_vectors
-            ]
-
-            matches = linker.match_new_to_missing(candidates, missing_ids)
+            matches = linker.match_ready_pending()
             for new_id, canonical_id in matches.items():
                 linker.alias(new_id, canonical_id)
                 _rewrite_track_id(boxes_data, new_id, canonical_id)
                 _rewrite_track_id(parsed, new_id, canonical_id)
                 _merge_galleries(crop_gallery, new_id, canonical_id)
-                vector = candidate_vectors.get(new_id)
-                if vector:
-                    linker.remember_vector(canonical_id, vector)
-                    last_reid_frame[canonical_id] = frame_index
-                    extracted_this_frame.add(canonical_id)
+                last_reid_frame[canonical_id] = frame_index
+                extracted_this_frame.add(canonical_id)
+
+            linker.commit_ready_unmatched()
 
             for p in parsed:
                 if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
                     continue
                 p["trackId"] = linker.resolve(p["trackId"])
 
-            for new_id in new_ids - set(matches.keys()):
-                vector = candidate_vectors.get(new_id)
-                if vector:
-                    linker.remember_vector(new_id, vector)
-
         for p in parsed:
             if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
                 continue
-            linker.mark_seen(p["trackId"], _center(p), frame_index)
+            linker.mark_seen(p["trackId"], frame_index)
             if p["trackId"] not in linker.known_ids and not reid_ready:
                 linker.known_ids.add(p["trackId"])
 
@@ -279,7 +264,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 continue
             _keep_top_crop(crop_gallery, p["trackId"], score, resized, frame_index)
 
-            if not reid_ready or p["trackId"] in extracted_this_frame:
+            if not reid_ready or p["trackId"] in extracted_this_frame or linker.is_pending(p["trackId"]):
                 continue
             needs_first = not linker.has_gallery(p["trackId"])
             last = last_reid_frame.get(p["trackId"], -refresh_gap)

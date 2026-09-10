@@ -73,7 +73,22 @@ class BallStateTrackerTest {
         verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
     }
 
+    @Test
+    void bounceBelowShouldersIsNotAShot() {
+        BallStateTracker tracker = new BallStateTracker(physicsEngine);
+        GameAnalysis result = tracker.analyze(lowBounceScript(), 30.0);
+
+        assertEquals(0, result.shots().size());
+        verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
+    }
+
     private void stubMadeShot() {
+        when(physicsEngine.analyzeFlight(any(), any(), anyInt(), anyInt(), anyList()))
+                .thenAnswer(invocation -> {
+                    int max = invocation.getArgument(3);
+                    List<DetectionBox> prior = invocation.getArgument(4);
+                    return new ShotPhysicsEngine.ShotFlight(max, prior);
+                });
         when(physicsEngine.generateShot(any(), any(), anyList(), anyDouble(), anyInt()))
                 .thenAnswer(invocation -> {
                     DetectionBox shooter = invocation.getArgument(1);
@@ -140,6 +155,27 @@ class BallStateTrackerTest {
                 boxes.add(ball(f, 330, 140));
             } else if (f <= 14) {
                 boxes.add(ball(f, 330, 140 + (f - 6) * 12));
+            } else {
+                boxes.add(ball(f, 330, 140));
+            }
+        }
+        return boxes;
+    }
+
+    private List<DetectionBox> lowBounceScript() {
+        List<DetectionBox> boxes = new ArrayList<>();
+        DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
+        DetectionBox dribbler = player(0, 7, 320);
+
+        for (int f = 0; f <= 40; f++) {
+            boxes.add(copy(hoop, f));
+            boxes.add(copy(dribbler, f));
+            if (f <= 6) {
+                boxes.add(ball(f, 330, 140));
+            } else if (f <= 12) {
+                boxes.add(ball(f, 300 - (f - 6) * 8, 190 + (f - 6) * 8));
+            } else if (f <= 22) {
+                boxes.add(ball(f, 250, 230 - (f - 12) * 6));
             } else {
                 boxes.add(ball(f, 330, 140));
             }
