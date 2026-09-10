@@ -11,111 +11,6 @@ from services.reid_extractor import is_available as reid_is_available
 
 logger = logging.getLogger(__name__)
 
-_SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
-TRACKER_PATH = os.path.normpath(os.path.join(_SERVICES_DIR, "..", "custom_bytetrack.yaml"))
-
-model = YOLO("models/best-detectionV2.2-0.907-0.592_openvino_model", task="detect")
-
-PLAYER_CLASS_ID = 2
-EDGE_MARGIN = 4
-MIN_ASPECT = 1.6
-MAX_ASPECT = 4.5
-MIN_HEIGHT = 80
-CROP_WIDTH = 128
-CROP_HEIGHT = 256
-TOP_K_CROPS = 15
-MIN_CROP_GAP_FRAMES = 15
-OVERLAP_PENALTY_IOU = 0.3
-REID_REFRESH_SECONDS = 2.0
-
-
-def _box_track_id(box) -> int:
-    if box.id is None:
-        return -1
-    track_id = box.id
-    if hasattr(track_id, "item"):
-        return int(track_id.item())
-    return int(track_id)
-
-
-def _iou(a, b) -> float:
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
-    inter = iw * ih
-    if inter <= 0:
-        return 0.0
-    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
-    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _is_full_body(x1, y1, x2, y2, frame_w, frame_h) -> bool:
-    if x1 < EDGE_MARGIN or y1 < EDGE_MARGIN:
-        return False
-    if x2 > frame_w - EDGE_MARGIN or y2 > frame_h - EDGE_MARGIN:
-        return False
-    width = x2 - x1
-    height = y2 - y1
-    if width <= 0 or height < MIN_HEIGHT:
-        return False
-    aspect = height / width
-    return MIN_ASPECT <= aspect <= MAX_ASPECT
-
-
-def _crop_score(confidence, width, height, frame_w, frame_h, box_xyxy, other_player_xyxy) -> float:
-    frame_area = max(1.0, float(frame_w * frame_h))
-    area_norm = (width * height) / frame_area
-    score = (0.5 * confidence) + (0.3 * area_norm) + 0.2
-    for other in other_player_xyxy:
-        iou = _iou(box_xyxy, other)
-        if iou > OVERLAP_PENALTY_IOU:
-            score *= (1.0 - iou)
-    return score
-
-
-def _keep_top_crop(gallery: dict, track_id: int, score: float, crop, frame_index: int) -> None:
-    items = gallery.setdefault(track_id, [])
-    close_idx = None
-    for i, (_, existing_frame, _) in enumerate(items):
-        if abs(frame_index - existing_frame) < MIN_CROP_GAP_FRAMES:
-            close_idx = i
-            break
-    if close_idx is not None:
-        if score > items[close_idx][0]:
-            items[close_idx] = (score, frame_index, crop)
-            items.sort(key=lambda item: item[0], reverse=True)
-        return
-    items.append((score, frame_index, crop))
-    items.sort(key=lambda item: item[0], reverse=True)
-    del items[TOP_K_CROPS:]
-
-
-def _crop_player(frame, box: dict, frame_w: int, frame_h: int):
-    x1i, y1i = max(0, int(box["x1"])), max(0, int(box["y1"]))
-    x2i, y2i = min(frame_w, int(box["x2"])), min(frame_h, int(box["y2"]))
-    if x2i <= x1i or y2i <= y1i:
-        return None
-    crop = frame[y1i:y2i, x1i:x2i]
-    if crop.size == 0:
-        return None
-    return cv2.resize(crop, (CROP_WIDTH, CROP_HEIGHT))
-
-
-def _rewrite_track_id(boxes_data: list, from_id: int, to_id: int) -> None:
-    for box in boxes_data:
-        if box["trackId"] == from_id:
-            box["trackId"] = to_id
-
-
-def _merge_galleries(gallery: dict, from_id: int, to_id: int) -> None:
-    for score, frame_index, crop in gallery.pop(from_id, []):
-        _keep_top_crop(gallery, to_id, score, crop, frame_index)
-
-
 def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     if not crops:
         return []
@@ -187,6 +82,12 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
         if reid_ready:
             linker.observe_new_ids(new_ids, current_ids, frame_index)
+            
+            # record start list index for new ids
+            current_boxes_len = len(boxes_data)
+            for new_id in new_ids:
+                linker.record_list_index(new_id, current_boxes_len)
+
             linker.drop_visible_candidates(current_ids, frame_index)
 
             pending_extract = []
@@ -210,8 +111,13 @@ def process_video(file_path: str) -> tuple[float, list, list]:
             matches = linker.match_ready_pending(frame_index)
             for new_id, canonical_id in matches.items():
                 linker.alias(new_id, canonical_id)
-                _rewrite_track_id(boxes_data, new_id, canonical_id)
-                _rewrite_track_id(parsed, new_id, canonical_id)
+                
+                # rewrite track id and merge galleries
+                # rewrite begins from the start list index and parsed begins from 0
+                start_list_index = linker.get_start_list_index(new_id)
+                _rewrite_track_id(boxes_data, new_id, canonical_id, start_list_index)
+                _rewrite_track_id(parsed, new_id, canonical_id, start_frame=0)
+
                 _merge_galleries(crop_gallery, new_id, canonical_id)
                 last_reid_frame[canonical_id] = frame_index
                 extracted_this_frame.add(canonical_id)

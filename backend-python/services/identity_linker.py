@@ -40,7 +40,18 @@ class IdentityLinker:
         self.galleries: dict[int, list[list[float]]] = {}
         self.last_seen_frame: dict[int, int] = {}
         self.first_seen_frame: dict[int, int] = {}
+        self.start_list_index: dict[int, int] = {}
         self.pending: dict[int, set[int]] = {}
+
+    def get_first_seen_frame(self, track_id: int) -> int:
+        return self.first_seen_frame.get(track_id, -1)
+
+    def record_start_list_index(self, track_id: int, index: int) -> None:
+        if track_id not in self.start_list_index:
+            self.start_list_index[track_id] = index
+
+    def get_start_list_index(self, track_id: int) -> int:
+        return self.start_list_index.get(track_id, 0)
 
     def resolve(self, track_id: int) -> int:
         if track_id < 0:
