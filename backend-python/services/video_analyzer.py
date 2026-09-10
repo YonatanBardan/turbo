@@ -186,8 +186,8 @@ def process_video(file_path: str) -> tuple[float, list, list]:
         extracted_this_frame = set()
 
         if reid_ready:
-            linker.observe_new_ids(new_ids, current_ids)
-            linker.drop_visible_candidates(current_ids)
+            linker.observe_new_ids(new_ids, current_ids, frame_index)
+            linker.drop_visible_candidates(current_ids, frame_index)
 
             pending_extract = []
             for p in parsed:
@@ -207,7 +207,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                     extracted_this_frame.add(track_id)
                     last_reid_frame[track_id] = frame_index
 
-            matches = linker.match_ready_pending()
+            matches = linker.match_ready_pending(frame_index)
             for new_id, canonical_id in matches.items():
                 linker.alias(new_id, canonical_id)
                 _rewrite_track_id(boxes_data, new_id, canonical_id)
