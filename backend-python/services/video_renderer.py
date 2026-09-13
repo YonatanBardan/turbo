@@ -1,9 +1,7 @@
 import os
 import cv2
 
-
 from typing import Optional
-
 
 def _player_ids_from_payload(shots: list, player_ids: Optional[list] = None) -> list:
     ids = set()
@@ -25,12 +23,15 @@ def _apply_shots(stats: dict, shots_at_frame: list) -> str | None:
     for shot in shots_at_frame:
         shooter = int(getattr(shot, "shooterTrackId", -1))
         is_make = bool(shot.isMake)
+        probability = float(getattr(shot, "makeProbability", 0.0))
+        percent = max(0, min(100, int(round(probability * 100))))
         if shooter >= 0:
             row = stats.setdefault(shooter, {"fgm": 0, "fga": 0, "ast": 0})
             row["fga"] += 1
             if is_make:
                 row["fgm"] += 1
-            banner = f"P{shooter} {'MAKE' if is_make else 'MISS'}"
+            result = "MAKE" if is_make else "MISS"
+            banner = f"P{shooter}  {percent}%  {result}"
         if bool(getattr(shot, "assist", False)):
             passer = int(getattr(shot, "passerTrackId", -1))
             if passer >= 0:
@@ -90,7 +91,7 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list, play
     if not fps or fps <= 0:
         fps = 30.0
 
-    output_dir = r"C:\Users\yonat\OneDrive\Desktop\Stuff\semester 2\Projects\Code Name - Tourbo\Process\Basketball-Logic"
+    output_dir = r"C:\Users\yonat\OneDrive\Desktop\Projects\Code Name - Tourbo\Process\Basketball-Logic"
     os.makedirs(output_dir, exist_ok=True)
     base_name = os.path.basename(video_path)
     name_only, extension = os.path.splitext(base_name)

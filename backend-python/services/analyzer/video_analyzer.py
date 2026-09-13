@@ -1,135 +1,31 @@
 import logging
-import os
+import os # Operating System - navigate and manage files and directories
 import time
 
-import cv2
+import cv2 # Computer Vision Library - 3D NumPy Arrays
 from ultralytics import YOLO
 
+from services.analyzer.config import MODEL_PATH, TRACKER_PATH, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
 from services.identity_linker import IdentityLinker
 from services.reid_extractor import extract as extract_reid_vectors
 from services.reid_extractor import is_available as reid_is_available
+from services.analyzer.utils import _box_track_id, _is_full_body, _rewrite_track_id
+from services.analyzer.crops import _crop_score, _crop_player, _keep_top_crop, _merge_galleries
 
+model = YOLO(MODEL_PATH, task="detect")
 logger = logging.getLogger(__name__)
 
-_SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
-TRACKER_PATH = os.path.normpath(os.path.join(_SERVICES_DIR, "..", "custom_bytetrack.yaml"))
-
-model = YOLO("models/best-detectionV2.2-0.907-0.592_openvino_model", task="detect")
-
-PLAYER_CLASS_ID = 2
-EDGE_MARGIN = 4
-MIN_ASPECT = 1.6
-MAX_ASPECT = 4.5
-MIN_HEIGHT = 80
-CROP_WIDTH = 128
-CROP_HEIGHT = 256
-TOP_K_CROPS = 15
-MIN_CROP_GAP_FRAMES = 15
-OVERLAP_PENALTY_IOU = 0.3
-REID_REFRESH_SECONDS = 2.0
-
-
-def _box_track_id(box) -> int:
-    if box.id is None:
-        return -1
-    track_id = box.id
-    if hasattr(track_id, "item"):
-        return int(track_id.item())
-    return int(track_id)
-
-
-def _iou(a, b) -> float:
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
-    inter = iw * ih
-    if inter <= 0:
-        return 0.0
-    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
-    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _is_full_body(x1, y1, x2, y2, frame_w, frame_h) -> bool:
-    if x1 < EDGE_MARGIN or y1 < EDGE_MARGIN:
-        return False
-    if x2 > frame_w - EDGE_MARGIN or y2 > frame_h - EDGE_MARGIN:
-        return False
-    width = x2 - x1
-    height = y2 - y1
-    if width <= 0 or height < MIN_HEIGHT:
-        return False
-    aspect = height / width
-    return MIN_ASPECT <= aspect <= MAX_ASPECT
-
-
-def _crop_score(confidence, width, height, frame_w, frame_h, box_xyxy, other_player_xyxy) -> float:
-    frame_area = max(1.0, float(frame_w * frame_h))
-    area_norm = (width * height) / frame_area
-    score = (0.5 * confidence) + (0.3 * area_norm) + 0.2
-    for other in other_player_xyxy:
-        iou = _iou(box_xyxy, other)
-        if iou > OVERLAP_PENALTY_IOU:
-            score *= (1.0 - iou)
-    return score
-
-
-def _keep_top_crop(gallery: dict, track_id: int, score: float, crop, frame_index: int) -> None:
-    items = gallery.setdefault(track_id, [])
-    close_idx = None
-    for i, (_, existing_frame, _) in enumerate(items):
-        if abs(frame_index - existing_frame) < MIN_CROP_GAP_FRAMES:
-            close_idx = i
-            break
-    if close_idx is not None:
-        if score > items[close_idx][0]:
-            items[close_idx] = (score, frame_index, crop)
-            items.sort(key=lambda item: item[0], reverse=True)
-        return
-    items.append((score, frame_index, crop))
-    items.sort(key=lambda item: item[0], reverse=True)
-    del items[TOP_K_CROPS:]
-
-
-def _center(box: dict) -> tuple[float, float]:
-    return (box["x1"] + box["x2"]) / 2.0, (box["y1"] + box["y2"]) / 2.0
-
-
-def _crop_player(frame, box: dict, frame_w: int, frame_h: int):
-    x1i, y1i = max(0, int(box["x1"])), max(0, int(box["y1"]))
-    x2i, y2i = min(frame_w, int(box["x2"])), min(frame_h, int(box["y2"]))
-    if x2i <= x1i or y2i <= y1i:
-        return None
-    crop = frame[y1i:y2i, x1i:x2i]
-    if crop.size == 0:
-        return None
-    return cv2.resize(crop, (CROP_WIDTH, CROP_HEIGHT))
-
-
-def _rewrite_track_id(boxes_data: list, from_id: int, to_id: int) -> None:
-    for box in boxes_data:
-        if box["trackId"] == from_id:
-            box["trackId"] = to_id
-
-
-def _merge_galleries(gallery: dict, from_id: int, to_id: int) -> None:
-    for score, frame_index, crop in gallery.pop(from_id, []):
-        _keep_top_crop(gallery, to_id, score, crop, frame_index)
-
-
+# Calculating the crops vectors and registering the time of the process
 def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     if not crops:
         return []
-    started = time.perf_counter()
-    vectors = extract_reid_vectors(crops)
-    stats["reid_ms"] += (time.perf_counter() - started) * 1000.0
+    started = time.perf_counter() # Start the timer
+    vectors = extract_reid_vectors(crops) # Extract ReID Vectors
+    stats["reid_ms"] += (time.perf_counter() - started) * 1000.0 # close timer
     stats["reid_crops"] += len(crops)
     return vectors
 
-
+# Process the video and return the fps, boxes data, and players vectors
 def process_video(file_path: str) -> tuple[float, list, list]:
 
     cap = cv2.VideoCapture(file_path)
@@ -138,19 +34,19 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 0:
-        fps = 30.0
+        fps = 30.0 # Default to 30 fps
 
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    linker = IdentityLinker(frame_w)
+    linker = IdentityLinker() # New instance of IdentityLinker
     reid_ready = reid_is_available()
-    refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS))
+    refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS)) # Cooldown timer for a new crop
 
     boxes_data = []
     crop_gallery = {}
-    last_reid_frame = {}
+    last_reid_frame = {} # Last crop taken for each player
     frame_index = 0
-    stats = {"yolo_ms": 0.0, "reid_ms": 0.0, "reid_crops": 0}
+    stats = {"yolo_ms": 0.0, "reid_ms": 0.0, "reid_crops": 0} # Time (running) tracking statistics
     started_at = time.perf_counter()
 
     while True:
@@ -166,9 +62,9 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
         if result_boxes is not None:
             for box in result_boxes:
-                xyxy = box.xyxy[0].tolist()
+                xyxy = box.xyxy[0].tolist() # Convert the bounding box tensor to a list
                 x1, y1, x2, y2 = xyxy[0], xyxy[1], xyxy[2], xyxy[3]
-                track_id = linker.resolve(_box_track_id(box))
+                track_id = linker.resolve(_box_track_id(box)) # register the mapped corrected id if already resolved
                 parsed.append({
                     "x1": x1,
                     "y1": y1,
@@ -181,67 +77,68 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                     "trackId": track_id,
                 })
 
-        current_ids = {
-            p["trackId"]
+        current_ids = {   # Set of current frame player ids
+            p["trackId"]  # Add the player id to the set if meet the criteria
             for p in parsed
             if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0
         }
+
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
         extracted_this_frame = set()
 
-        if reid_ready and new_ids:
-            missing_ids = linker.missing_ids(current_ids)
-            pending = []
+        if reid_ready:
+            linker.observe_new_ids(new_ids, current_ids, frame_index)  # Also creates candidates list for potential matches
+            
+            current_boxes_len = len(boxes_data)
+            for new_id in new_ids:
+                linker.record_start_list_index(new_id, current_boxes_len) # Record the start index for faster search
+
+            linker.drop_visible_candidates(current_ids, frame_index) # Filter out current detected players ids
+
+            # Extract well defined crops of players that need to be extracted
+            pending_extract = []
             for p in parsed:
-                if p["classId"] != PLAYER_CLASS_ID or p["trackId"] not in new_ids:
+                if p["classId"] != PLAYER_CLASS_ID or not linker.needs_pending_vector(p["trackId"]):
                     continue
                 if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
                     continue
                 crop = _crop_player(frame, p, frame_w, frame_h)
                 if crop is None:
                     continue
-                pending.append((p["trackId"], crop, _center(p)))
+                pending_extract.append((p["trackId"], crop))
 
-            candidate_vectors = {}
-            if pending:
-                vectors = _timed_extract([crop for _, crop, _ in pending], stats)
-                for (track_id, _, _), vector in zip(pending, vectors):
-                    candidate_vectors[track_id] = vector
+            if pending_extract:
+                vectors = _timed_extract([crop for _, crop in pending_extract], stats) # Extract ReID Vectors with a batch
+                for (track_id, _), vector in zip(pending_extract, vectors): # Associate the vector with the player id
+                    linker.remember_vector(track_id, vector)
                     extracted_this_frame.add(track_id)
-                    last_reid_frame[track_id] = frame_index
+                    last_reid_frame[track_id] = frame_index  # Update the last frame a player's crop was taken
 
-            candidates = [
-                (track_id, candidate_vectors[track_id], center)
-                for track_id, _, center in pending
-                if track_id in candidate_vectors
-            ]
-
-            matches = linker.match_new_to_missing(candidates, missing_ids)
+            matches = linker.match_ready_pending(frame_index)
             for new_id, canonical_id in matches.items():
                 linker.alias(new_id, canonical_id)
-                _rewrite_track_id(boxes_data, new_id, canonical_id)
-                _rewrite_track_id(parsed, new_id, canonical_id)
+                
+                # rewrite track id and merge galleries
+                # rewrite begins from the start list index and parsed begins from 0
+                start_list_index = linker.get_start_list_index(new_id)
+                _rewrite_track_id(boxes_data, new_id, canonical_id, start_list_index)
+                _rewrite_track_id(parsed, new_id, canonical_id, start_list_index=0)
+
                 _merge_galleries(crop_gallery, new_id, canonical_id)
-                vector = candidate_vectors.get(new_id)
-                if vector:
-                    linker.remember_vector(canonical_id, vector)
-                    last_reid_frame[canonical_id] = frame_index
-                    extracted_this_frame.add(canonical_id)
+                last_reid_frame[canonical_id] = frame_index
+                extracted_this_frame.add(canonical_id)
+
+            linker.commit_ready_unmatched()
 
             for p in parsed:
                 if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
                     continue
                 p["trackId"] = linker.resolve(p["trackId"])
 
-            for new_id in new_ids - set(matches.keys()):
-                vector = candidate_vectors.get(new_id)
-                if vector:
-                    linker.remember_vector(new_id, vector)
-
         for p in parsed:
             if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
                 continue
-            linker.mark_seen(p["trackId"], _center(p), frame_index)
+            linker.mark_seen(p["trackId"], frame_index)
             if p["trackId"] not in linker.known_ids and not reid_ready:
                 linker.known_ids.add(p["trackId"])
 
@@ -279,7 +176,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 continue
             _keep_top_crop(crop_gallery, p["trackId"], score, resized, frame_index)
 
-            if not reid_ready or p["trackId"] in extracted_this_frame:
+            if not reid_ready or p["trackId"] in extracted_this_frame or linker.is_pending(p["trackId"]):
                 continue
             needs_first = not linker.has_gallery(p["trackId"])
             last = last_reid_frame.get(p["trackId"], -refresh_gap)

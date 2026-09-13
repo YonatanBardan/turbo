@@ -6,14 +6,75 @@ import com.turbo.backend_analytics.util.TimeUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+
+import static com.turbo.backend_analytics.util.GeometryUtil.centerY;
+import static com.turbo.backend_analytics.util.GeometryUtil.findHighestConfidence;
 
 @Component
 public class ShotPhysicsEngine {
 
+    public record ShotFlight(int endFrame, List<DetectionBox> ballPath) {}
+
+    private static final int BALL = 0;
+    private static final int HOOP = 1;
+
     @Autowired
     private TrajectoryMath trajectoryMath;
+
+    public ShotFlight analyzeFlight(
+            DetectionBox hoop,
+            Map<Integer, List<DetectionBox>> frames,
+            int startFrame,
+            int maxFrame,
+            List<DetectionBox> alreadyTracked
+    ) {
+        List<DetectionBox> path = alreadyTracked == null ? new ArrayList<>() : new ArrayList<>(alreadyTracked);
+        DetectionBox liveHoop = hoop;
+        boolean reachedHoopHeight = false;
+        double peakY = Double.MAX_VALUE;
+        DetectionBox lastBall = path.isEmpty() ? null : path.getLast();
+        int endFrame = startFrame;
+
+        for (int f = startFrame; f <= maxFrame; f++) {
+            List<DetectionBox> boxes = frames.getOrDefault(f, List.of());
+            DetectionBox hoopNow = findHighestConfidence(boxes, HOOP);
+            if (hoopNow != null) {
+                liveHoop = hoopNow;
+            }
+            DetectionBox ball = findHighestConfidence(boxes, BALL);
+            if (ball == null) {
+                continue;
+            }
+            if (lastBall == null || ball.frameIndex() != lastBall.frameIndex()) {
+                path.add(ball);
+            }
+
+            double y = centerY(ball);
+            peakY = Math.min(peakY, y);
+            double hoopBottom = liveHoop != null ? liveHoop.y() + liveHoop.height() : y;
+            if (y <= hoopBottom) {
+                reachedHoopHeight = true;
+            }
+
+            boolean falling = lastBall != null && y > centerY(lastBall) + 2.0;
+            boolean belowHoop = y > hoopBottom;
+            lastBall = ball;
+            endFrame = f;
+
+            if (reachedHoopHeight && falling && belowHoop) {
+                break;
+            }
+            if (!reachedHoopHeight && falling && y > peakY + 12.0) {
+                break;
+            }
+        }
+
+        return new ShotFlight(endFrame, path);
+    }
 
     // Updates: Shot's shooter's data and make probability of the shot
     public Optional<Shot> generateShot(DetectionBox hoop, DetectionBox shooter, List<DetectionBox> ballPath, double currentShotTime, int frameIndex){
@@ -35,7 +96,7 @@ public class ShotPhysicsEngine {
         // Defines Backboard area
         double bbMinX = hoop.x() - (hoop.width() * 1.5);
         double bbMaxX = hoop.x() + (hoop.width() * 2.5);
-        double bbMaxY = hoop.y();           // The lowest rim level
+        double bbMaxY = hoop.y();                            // The lowest rim level
         double bbMinY = hoop.y() - (hoop.height() * 3.0);   // Top of the backboard
 
         int bounceIndex = -1;
@@ -77,7 +138,8 @@ public class ShotPhysicsEngine {
                 double bounceX = bounceBox.x() + (bounceBox.width() / 2.0);
                 predictedX = trajectoryMath.predictShotBallX(mathPath, hoopCenterY, bounceX);
             } else {
-                predictedX = ballPath.getLast().x();            }
+                predictedX = ballPath.getLast().x();
+            }
         } else {
             predictedX = trajectoryMath.predictShotBallX(mathPath, hoopCenterY, shooter.x());
         }
@@ -108,7 +170,7 @@ public class ShotPhysicsEngine {
                         DetectionBox prevBall = ballPath.get(j - 1);
 
                         // Screen Y: smaller value means higher up
-                        if (nextBall.y() < prevBall.y() - 1.0) {
+                        if (nextBall.y() < prevBall.y() - 4.0) {
                             goesUpAfter = true;
                             break;
                         }

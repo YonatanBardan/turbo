@@ -14,11 +14,12 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static com.turbo.backend_analytics.util.GeometryUtil.centerDistance;
+import static com.turbo.backend_analytics.util.GeometryUtil.centerY;
 import static com.turbo.backend_analytics.util.GeometryUtil.findAllClass;
 import static com.turbo.backend_analytics.util.GeometryUtil.findBallPossessor;
 import static com.turbo.backend_analytics.util.GeometryUtil.findClass;
 import static com.turbo.backend_analytics.util.GeometryUtil.findHighestConfidence;
-import static com.turbo.backend_analytics.util.GeometryUtil.findNearestPlayer;
+import static com.turbo.backend_analytics.util.GeometryUtil.findPlayerByTrackId;
 
 @Component
 public class BallStateTracker {
@@ -27,13 +28,15 @@ public class BallStateTracker {
     private static final int HOOP = 1;
     private static final int PLAYER = 2;
 
-    private static final int POSSESSION_COMMIT_FRAMES = 3;
-    private static final int POSSESSION_LOST_FRAMES = 4;
-    private static final int DRIBBLE_RECATCH_FRAMES = 10;
-    private static final int SHOT_VERIFY_FRAMES = 8;
+    private static final int RELEASE_GROW_FRAMES = 2;
+    private static final double DISTANCE_GROW_PX = 3.0;
+    private static final int SHOT_RISE_MIN_POINTS = 3;
+    private static final double SHOT_RISE_PX = 18.0;
+    private static final double SHOT_SHOULDER_RATIO = 0.30;
+    private static final int LOOSE_SAME_HOLDER_DELAY = 2;
     private static final double ASSIST_WINDOW_SECONDS = 3.0;
 
-    private enum Phase { POSSESSED, IN_AIR, TRACKING_SHOT }
+    private enum Phase { POSSESSED, LOOSE, SHOT }
 
     private final ShotPhysicsEngine physicsEngine;
 
@@ -46,7 +49,6 @@ public class BallStateTracker {
         session.fps = fps > 0 ? fps : 30.0;
         session.hoop = findClass(detections, HOOP);
         session.assistWindowFrames = Math.max(1, (int) Math.round(session.fps * ASSIST_WINDOW_SECONDS));
-        session.airTimeoutFrames = Math.max(SHOT_VERIFY_FRAMES, (int) Math.round(session.fps * 1.5));
 
         if (detections == null || detections.isEmpty() || session.hoop == null) {
             return new GameAnalysis(session.shots, freezeStats(session.stats));
@@ -56,7 +58,8 @@ public class BallStateTracker {
                 .collect(Collectors.groupingBy(DetectionBox::frameIndex));
         int maxFrame = frames.keySet().stream().max(Integer::compareTo).orElse(0);
 
-        for (int i = 0; i <= maxFrame; i++) {
+        int i = 0;
+        while (i <= maxFrame) {
             List<DetectionBox> boxes = frames.getOrDefault(i, List.of());
             DetectionBox hoop = findHighestConfidence(boxes, HOOP);
             if (hoop != null) {
@@ -65,193 +68,175 @@ public class BallStateTracker {
 
             DetectionBox ball = findHighestConfidence(boxes, BALL);
             List<DetectionBox> players = findAllClass(boxes, PLAYER);
-            DetectionBox possessor = ball != null ? findBallPossessor(ball, players) : null;
-            updatePossession(session, possessor, ball, i);
+            session.frame = i;
 
             switch (session.phase) {
                 case POSSESSED -> handlePossessed(ball, players, session, i);
-                case IN_AIR -> handleInAir(ball, session, i);
-                case TRACKING_SHOT -> handleTrackingShot(ball, session, i);
+                case LOOSE -> handleLoose(ball, players, session, i);
+                case SHOT -> { }
             }
+
+            if (session.phase == Phase.SHOT) {
+                handleShot(frames, i, maxFrame, session);
+                i = session.resumeAt;
+                session.resumeAt = -1;
+                continue;
+            }
+
+            i++;
         }
 
         return new GameAnalysis(session.shots, freezeStats(session.stats));
     }
 
-    private void updatePossession(Session session, DetectionBox candidate, DetectionBox ball, int frame) {
-        session.frame = frame;
-        if (ball == null) {
-            // Occlusion (e.g. ball hidden behind the dribbler) is not a release.
-            return;
-        }
-        if (candidate != null && candidate.trackId() >= 0) {
-            session.lostFrames = 0;
-            if (session.pendingPossessor != null && session.pendingPossessor.trackId() == candidate.trackId()) {
-                session.pendingPossessor = candidate;
-                session.pendingCount++;
-            } else if (session.committedPossessor != null && session.committedPossessor.trackId() == candidate.trackId()) {
-                session.committedPossessor = candidate;
-                session.pendingPossessor = candidate;
-                session.pendingCount = POSSESSION_COMMIT_FRAMES;
-            } else {
-                session.pendingPossessor = candidate;
-                session.pendingCount = 1;
-            }
-            if (session.pendingCount >= POSSESSION_COMMIT_FRAMES) {
-                session.committedPossessor = session.pendingPossessor;
-            }
-        } else {
-            session.lostFrames++;
-            if (session.lostFrames > POSSESSION_LOST_FRAMES) {
-                session.pendingPossessor = null;
-                session.pendingCount = 0;
-            }
-        }
-    }
-
     private void handlePossessed(DetectionBox ball, List<DetectionBox> players, Session session, int frame) {
-        if (session.committedPossessor != null) {
-            session.lastPossessorId = session.committedPossessor.trackId();
-            session.lastPossessorBox = session.committedPossessor;
-            session.holding = true;
-        }
-        if (ball == null) {
-            return;
-        }
-        boolean stillHeld = session.committedPossessor != null
-                && session.lostFrames <= POSSESSION_LOST_FRAMES;
-        if (stillHeld) {
-            return;
-        }
-        if (!session.holding) {
-            if (session.lastPossessorId < 0 && session.lostFrames > POSSESSION_LOST_FRAMES) {
-                DetectionBox nearest = findNearestPlayer(ball, players);
-                if (nearest == null) {
-                    return;
-                }
-                session.lastPossessorId = nearest.trackId();
-                session.lastPossessorBox = nearest;
-                startInAir(session, frame);
-                session.ballPath.add(ball);
+        if (session.holder == null) {
+            DetectionBox possessor = ball != null ? findBallPossessor(ball, players) : null;
+            if (possessor != null) {
+                enterPossessed(session, possessor, false);
             }
             return;
         }
-        session.holding = false;
-        startInAir(session, frame);
-        session.ballPath.add(ball);
+
+        DetectionBox liveHolder = findPlayerByTrackId(players, session.holder.trackId());
+        if (liveHolder != null) {
+            session.holder = liveHolder;
+            session.lastHolderBox = liveHolder;
+        }
+
+        if (ball == null) {
+            return;
+        }
+
+        DetectionBox distanceRef = session.holder != null ? session.holder : session.lastHolderBox;
+        if (distanceRef == null) {
+            return;
+        }
+
+        double dist = centerDistance(ball, distanceRef);
+        if (session.lastDistance >= 0 && dist > session.lastDistance + DISTANCE_GROW_PX) {
+            session.growingFrames++;
+        } else {
+            session.growingFrames = 0;
+        }
+        session.lastDistance = dist;
+
+        if (session.growingFrames >= RELEASE_GROW_FRAMES) {
+            enterLoose(session, ball, frame);
+        }
     }
 
-    private void handleInAir(DetectionBox ball, Session session, int frame) {
+    private void handleLoose(DetectionBox ball, List<DetectionBox> players, Session session, int frame) {
         if (ball != null) {
             session.ballPath.add(ball);
         }
 
-        DetectionBox catcher = committedCatcher(session);
-        if (catcher != null) {
-            resolveCatch(session, catcher, frame);
+        if (ball != null && yReducedSignificantly(session, players)) {
+            enterShot(session, frame);
             return;
         }
 
-        if (session.ballPath.size() >= SHOT_VERIFY_FRAMES && looksLikeShot(session)) {
-            session.phase = Phase.TRACKING_SHOT;
-            session.shotTime = session.ballPath.getFirst().frameIndex() / session.fps;
+        DetectionBox catcher = ball != null ? findBallPossessor(ball, players) : null;
+        if (catcher == null) {
             return;
         }
-
-        if (frame - session.airStartFrame >= session.airTimeoutFrames) {
-            resetToWaitForPossession(session);
+        boolean sameHolder = catcher.trackId() == session.lastHolderId;
+        if (sameHolder && (frame - session.looseStartFrame) < LOOSE_SAME_HOLDER_DELAY) {
+            return;
         }
+        enterPossessed(session, catcher, !sameHolder);
     }
 
-    private void handleTrackingShot(DetectionBox ball, Session session, int frame) {
-        if (ball != null) {
-            session.ballPath.add(ball);
-        }
-
-        DetectionBox catcher = committedCatcher(session);
-        if (catcher != null) {
-            resolveCatch(session, catcher, frame);
-            return;
-        }
-
-        if (session.ballPath.isEmpty() || session.hoop == null) {
-            return;
-        }
-        DetectionBox lastBall = session.ballPath.getLast();
-        boolean belowHoop = lastBall.y() > session.hoop.y() + session.hoop.height();
-        if (belowHoop) {
-            finishShot(session, lastBall.frameIndex());
-        } else if (frame - session.airStartFrame >= session.airTimeoutFrames * 2) {
-            resetToWaitForPossession(session);
-        }
-    }
-
-    private DetectionBox committedCatcher(Session session) {
-        if (session.committedPossessor == null || session.lostFrames > POSSESSION_LOST_FRAMES) {
-            return null;
-        }
-        if (session.pendingCount < POSSESSION_COMMIT_FRAMES) {
-            return null;
-        }
-        return session.committedPossessor;
-    }
-
-    private void resolveCatch(Session session, DetectionBox catcher, int frame) {
-        int catcherId = catcher.trackId();
-        boolean sameHandler = catcherId == session.releaserId
-                && (frame - session.airStartFrame) <= DRIBBLE_RECATCH_FRAMES;
-
-        if (sameHandler) {
-            session.phase = Phase.POSSESSED;
-            session.holding = true;
-            session.lastPossessorId = catcherId;
-            session.lastPossessorBox = catcher;
+    private void handleShot(
+            Map<Integer, List<DetectionBox>> frames,
+            int frame,
+            int maxFrame,
+            Session session
+    ) {
+        ShotPhysicsEngine.ShotFlight flight = physicsEngine.analyzeFlight(
+                session.hoop,
+                frames,
+                frame,
+                maxFrame,
+                session.ballPath
+        );
+        if (flight != null && flight.ballPath() != null) {
             session.ballPath.clear();
-            return;
+            session.ballPath.addAll(flight.ballPath());
         }
+        int endFrame = flight != null ? flight.endFrame() : frame;
+        finishShot(session, endFrame);
 
-        if (catcherId != session.releaserId && session.releaserId >= 0) {
-            session.lastPasserId = session.releaserId;
-            session.lastPassFrame = frame;
+        List<DetectionBox> endBoxes = frames.getOrDefault(endFrame, List.of());
+        DetectionBox ball = findHighestConfidence(endBoxes, BALL);
+        enterLoose(session, ball, endFrame);
+        session.resumeAt = endFrame;
+    }
+
+    private void enterPossessed(Session session, DetectionBox holder, boolean fromPass) {
+        if (fromPass && session.lastHolderId >= 0 && holder.trackId() != session.lastHolderId) {
+            session.lastPasserId = session.lastHolderId;
+            session.lastPassFrame = session.frame;
         }
         session.phase = Phase.POSSESSED;
-        session.holding = true;
-        session.lastPossessorId = catcherId;
-        session.lastPossessorBox = catcher;
-        session.committedPossessor = catcher;
+        session.holder = holder;
+        session.lastHolderId = holder.trackId();
+        session.lastHolderBox = holder;
+        session.lastDistance = -1;
+        session.growingFrames = 0;
         session.ballPath.clear();
     }
 
-    private void startInAir(Session session, int frame) {
-        session.phase = Phase.IN_AIR;
-        session.airStartFrame = frame;
-        session.releaserId = session.lastPossessorId;
-        session.releaserBox = session.lastPossessorBox;
-        session.committedPossessor = null;
-        session.pendingCount = 0;
+    private void enterLoose(Session session, DetectionBox ball, int frame) {
+        session.phase = Phase.LOOSE;
+        session.looseStartFrame = frame;
+        session.lastHolderId = session.holder != null ? session.holder.trackId() : session.lastHolderId;
+        session.lastHolderBox = session.holder != null ? session.holder : session.lastHolderBox;
+        session.holder = null;
+        session.lastDistance = -1;
+        session.growingFrames = 0;
         session.ballPath.clear();
+        if (ball != null) {
+            session.looseStartY = centerY(ball);
+            session.ballPath.add(ball);
+        }
     }
 
-    private boolean looksLikeShot(Session session) {
-        if (session.ballPath.size() < SHOT_VERIFY_FRAMES || session.hoop == null) {
+    private void enterShot(Session session, int frame) {
+        session.phase = Phase.SHOT;
+        session.shotTime = frame / session.fps;
+    }
+
+    private boolean yReducedSignificantly(Session session, List<DetectionBox> players) {
+        if (session.ballPath.size() < SHOT_RISE_MIN_POINTS) {
             return false;
         }
-        DetectionBox first = session.ballPath.getFirst();
         DetectionBox last = session.ballPath.getLast();
-        boolean goingUp = last.y() < first.y() - 4.0;
-        double firstDist = centerDistance(first, session.hoop);
-        double lastDist = centerDistance(last, session.hoop);
-        boolean towardHoop = lastDist < firstDist
-                || last.y() < session.hoop.y() + session.hoop.height();
-        boolean notDownwardDump = last.y() <= first.y() + 8.0;
-        return goingUp && towardHoop && notDownwardDump;
+        boolean movedUp = session.looseStartY - centerY(last) >= SHOT_RISE_PX;
+        if (!movedUp) {
+            return false;
+        }
+
+        DetectionBox shooter = findPlayerByTrackId(players, session.lastHolderId);
+        if (shooter == null) {
+            shooter = session.lastHolderBox;
+        }
+        if (shooter == null) {
+            return true;
+        }
+
+        // Dribble bounce comes up in the legs/torso. A shot is released around the shoulders.
+        double shoulderLine = shooter.y() + (shooter.height() * SHOT_SHOULDER_RATIO);
+        if (centerY(last) > shoulderLine) {
+            return false;
+        }
+        return true;
     }
 
     private void finishShot(Session session, int finalFrame) {
-        DetectionBox shooterBox = session.releaserBox != null ? session.releaserBox : session.lastPossessorBox;
-        int shooterId = session.releaserId >= 0 ? session.releaserId : session.lastPossessorId;
+        DetectionBox shooterBox = session.lastHolderBox;
+        int shooterId = session.lastHolderId;
         if (shooterBox == null || session.hoop == null || shooterId < 0) {
-            resetToWaitForPossession(session);
             return;
         }
 
@@ -262,7 +247,7 @@ public class BallStateTracker {
                 session.shotTime,
                 finalFrame
         );
-        if (generated.isPresent()) {
+        if (generated != null && generated.isPresent()) {
             boolean recentPass = session.lastPasserId >= 0
                     && session.lastPasserId != shooterId
                     && (finalFrame - session.lastPassFrame) <= session.assistWindowFrames;
@@ -272,7 +257,6 @@ public class BallStateTracker {
             session.shots.add(credited);
             creditStats(session, credited);
         }
-        resetToWaitForPossession(session);
     }
 
     private void creditStats(Session session, Shot shot) {
@@ -281,16 +265,6 @@ public class BallStateTracker {
         if (shot.assist() && shot.passerTrackId() >= 0) {
             session.stats.computeIfAbsent(shot.passerTrackId(), id -> new MutableStats()).assists++;
         }
-    }
-
-    private void resetToWaitForPossession(Session session) {
-        session.phase = Phase.POSSESSED;
-        session.holding = false;
-        session.ballPath.clear();
-        session.committedPossessor = null;
-        session.pendingPossessor = null;
-        session.pendingCount = 0;
-        session.lostFrames = POSSESSION_LOST_FRAMES + 1;
     }
 
     private Map<Integer, PlayerStats> freezeStats(Map<Integer, MutableStats> mutable) {
@@ -309,26 +283,23 @@ public class BallStateTracker {
     private static class Session {
         Phase phase = Phase.POSSESSED;
         DetectionBox hoop;
-        DetectionBox committedPossessor;
-        DetectionBox pendingPossessor;
-        DetectionBox lastPossessorBox;
-        DetectionBox releaserBox;
+        DetectionBox holder;
+        DetectionBox lastHolderBox;
         final List<DetectionBox> ballPath = new ArrayList<>();
         final List<Shot> shots = new ArrayList<>();
         final Map<Integer, MutableStats> stats = new HashMap<>();
 
         double fps = 30.0;
         double shotTime = 0.0;
+        double lastDistance = -1;
+        double looseStartY;
         int frame;
-        int pendingCount;
-        int lostFrames = POSSESSION_LOST_FRAMES + 1;
-        int lastPossessorId = -1;
+        int growingFrames;
+        int lastHolderId = -1;
         int lastPasserId = -1;
         int lastPassFrame = -1;
-        int releaserId = -1;
-        int airStartFrame;
+        int looseStartFrame;
         int assistWindowFrames = 90;
-        int airTimeoutFrames = 45;
-        boolean holding;
+        int resumeAt = -1;
     }
 }

@@ -19,6 +19,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,7 +34,7 @@ class BallStateTrackerTest {
         stubMadeShot();
 
         BallStateTracker tracker = new BallStateTracker(physicsEngine);
-        GameAnalysis result = tracker.analyze(script(), 30.0);
+        GameAnalysis result = tracker.analyze(passThenShotScript(), 30.0);
 
         assertEquals(1, result.shots().size());
         Shot shot = result.shots().getFirst();
@@ -62,13 +64,62 @@ class BallStateTrackerTest {
         assertEquals(1, result.statsByPlayerId().get(7).shots().size());
     }
 
+    @Test
+    void dribbleDoesNotBecomeAShot() {
+        BallStateTracker tracker = new BallStateTracker(physicsEngine);
+        GameAnalysis result = tracker.analyze(dribbleScript(), 30.0);
+
+        assertEquals(0, result.shots().size());
+        verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
+    }
+
+    @Test
+    void bounceBelowShouldersIsNotAShot() {
+        BallStateTracker tracker = new BallStateTracker(physicsEngine);
+        GameAnalysis result = tracker.analyze(lowBounceScript(), 30.0);
+
+        assertEquals(0, result.shots().size());
+        verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
+    }
+
     private void stubMadeShot() {
+        when(physicsEngine.analyzeFlight(any(), any(), anyInt(), anyInt(), anyList()))
+                .thenAnswer(invocation -> {
+                    int max = invocation.getArgument(3);
+                    List<DetectionBox> prior = invocation.getArgument(4);
+                    return new ShotPhysicsEngine.ShotFlight(max, prior);
+                });
         when(physicsEngine.generateShot(any(), any(), anyList(), anyDouble(), anyInt()))
                 .thenAnswer(invocation -> {
                     DetectionBox shooter = invocation.getArgument(1);
                     int frame = invocation.getArgument(4);
                     return Optional.of(new Shot(shooter, 0.9, "0:01", frame, true));
                 });
+    }
+
+    private List<DetectionBox> passThenShotScript() {
+        List<DetectionBox> boxes = new ArrayList<>();
+        DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
+        DetectionBox passer = player(0, 3, 60);
+        DetectionBox shooter = player(0, 7, 320);
+
+        for (int f = 0; f <= 70; f++) {
+            boxes.add(copy(hoop, f));
+            boxes.add(copy(passer, f));
+            boxes.add(copy(shooter, f));
+            if (f <= 6) {
+                boxes.add(ball(f, 70, 140));
+            } else if (f <= 12) {
+                boxes.add(ball(f, 70 + (f - 6) * 25, 140));
+            } else if (f <= 22) {
+                boxes.add(ball(f, 330, 140));
+            } else if (f <= 40) {
+                boxes.add(ball(f, 330 - (f - 22) * 8, 140 - (f - 22) * 6));
+            } else {
+                boxes.add(ball(f, 210, 80));
+            }
+        }
+        return boxes;
     }
 
     private List<DetectionBox> hiddenThenShotScript() {
@@ -82,36 +133,51 @@ class BallStateTrackerTest {
             if (f <= 8) {
                 boxes.add(ball(f, 330, 140));
             } else if (f <= 40) {
-                // Ball occluded (back to camera) — no ball box.
+                // Ball occluded (back to camera) — stay possessed.
             } else if (f <= 56) {
                 boxes.add(ball(f, 250, 120 - (f - 40) * 6));
             } else {
-                boxes.add(ball(f, 210, 70));
+                boxes.add(ball(f, 210, 80));
             }
         }
         return boxes;
     }
 
-    private List<DetectionBox> script() {
+    private List<DetectionBox> dribbleScript() {
         List<DetectionBox> boxes = new ArrayList<>();
         DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
-        DetectionBox passer = player(0, 3, 60);
-        DetectionBox shooter = player(0, 7, 320);
+        DetectionBox dribbler = player(0, 7, 320);
 
-        for (int f = 0; f <= 55; f++) {
+        for (int f = 0; f <= 40; f++) {
             boxes.add(copy(hoop, f));
-            boxes.add(copy(passer, f));
-            boxes.add(copy(shooter, f));
-            if (f <= 5) {
-                boxes.add(ball(f, 70, 140));
-            } else if (f <= 12) {
-                boxes.add(ball(f, 180, 140));
-            } else if (f <= 20) {
+            boxes.add(copy(dribbler, f));
+            if (f <= 6) {
                 boxes.add(ball(f, 330, 140));
-            } else if (f <= 32) {
-                boxes.add(ball(f, 250, 120 - (f - 20) * 8));
+            } else if (f <= 14) {
+                boxes.add(ball(f, 330, 140 + (f - 6) * 12));
             } else {
-                boxes.add(ball(f, 210, 70));
+                boxes.add(ball(f, 330, 140));
+            }
+        }
+        return boxes;
+    }
+
+    private List<DetectionBox> lowBounceScript() {
+        List<DetectionBox> boxes = new ArrayList<>();
+        DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
+        DetectionBox dribbler = player(0, 7, 320);
+
+        for (int f = 0; f <= 40; f++) {
+            boxes.add(copy(hoop, f));
+            boxes.add(copy(dribbler, f));
+            if (f <= 6) {
+                boxes.add(ball(f, 330, 140));
+            } else if (f <= 12) {
+                boxes.add(ball(f, 300 - (f - 6) * 8, 190 + (f - 6) * 8));
+            } else if (f <= 22) {
+                boxes.add(ball(f, 250, 230 - (f - 12) * 6));
+            } else {
+                boxes.add(ball(f, 330, 140));
             }
         }
         return boxes;
