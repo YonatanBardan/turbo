@@ -1,4 +1,4 @@
-from config import EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
+from .config import EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
 
 # get track id from box / out of tensor
 def _box_track_id(box) -> int:
@@ -44,6 +44,6 @@ def _is_full_body(x1, y1, x2, y2, frame_w, frame_h) -> bool:
 
 # rewrite track id from from_id to to_id starting from start_list_index#
 def _rewrite_track_id(boxes_data: list, from_id: int, to_id: int, start_list_index: int) -> None:
-    for box in boxes_data[start_list_index]:
+    for box in boxes_data[start_list_index:]:
         if box["trackId"] == from_id:
             box["trackId"] = to_id

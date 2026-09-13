@@ -1,26 +1,31 @@
 import logging
-import os
+import os # Operating System - navigate and manage files and directories
 import time
 
-import cv2
+import cv2 # Computer Vision Library - 3D NumPy Arrays
 from ultralytics import YOLO
 
+from services.analyzer.config import MODEL_PATH, TRACKER_PATH, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
 from services.identity_linker import IdentityLinker
 from services.reid_extractor import extract as extract_reid_vectors
 from services.reid_extractor import is_available as reid_is_available
+from services.analyzer.utils import _box_track_id, _is_full_body, _rewrite_track_id
+from services.analyzer.crops import _crop_score, _crop_player, _keep_top_crop, _merge_galleries
 
+model = YOLO(MODEL_PATH, task="detect")
 logger = logging.getLogger(__name__)
 
+# Calculating the crops vectors and registering the time of the process
 def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     if not crops:
         return []
-    started = time.perf_counter()
-    vectors = extract_reid_vectors(crops)
-    stats["reid_ms"] += (time.perf_counter() - started) * 1000.0
+    started = time.perf_counter() # Start the timer
+    vectors = extract_reid_vectors(crops) # Extract ReID Vectors
+    stats["reid_ms"] += (time.perf_counter() - started) * 1000.0 # close timer
     stats["reid_crops"] += len(crops)
     return vectors
 
-
+# Process the video and return the fps, boxes data, and players vectors
 def process_video(file_path: str) -> tuple[float, list, list]:
 
     cap = cv2.VideoCapture(file_path)
@@ -29,19 +34,19 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 0:
-        fps = 30.0
+        fps = 30.0 # Default to 30 fps
 
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    linker = IdentityLinker()
+    linker = IdentityLinker() # New instance of IdentityLinker
     reid_ready = reid_is_available()
-    refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS))
+    refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS)) # Cooldown timer for a new crop
 
     boxes_data = []
     crop_gallery = {}
-    last_reid_frame = {}
+    last_reid_frame = {} # Last crop taken for each player
     frame_index = 0
-    stats = {"yolo_ms": 0.0, "reid_ms": 0.0, "reid_crops": 0}
+    stats = {"yolo_ms": 0.0, "reid_ms": 0.0, "reid_crops": 0} # Time (running) tracking statistics
     started_at = time.perf_counter()
 
     while True:
@@ -57,9 +62,9 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
         if result_boxes is not None:
             for box in result_boxes:
-                xyxy = box.xyxy[0].tolist()
+                xyxy = box.xyxy[0].tolist() # Convert the bounding box tensor to a list
                 x1, y1, x2, y2 = xyxy[0], xyxy[1], xyxy[2], xyxy[3]
-                track_id = linker.resolve(_box_track_id(box))
+                track_id = linker.resolve(_box_track_id(box)) # register the mapped corrected id if already resolved
                 parsed.append({
                     "x1": x1,
                     "y1": y1,
@@ -72,24 +77,25 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                     "trackId": track_id,
                 })
 
-        current_ids = {
-            p["trackId"]
+        current_ids = {   # Set of current frame player ids
+            p["trackId"]  # Add the player id to the set if meet the criteria
             for p in parsed
             if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0
         }
+
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
         extracted_this_frame = set()
 
         if reid_ready:
-            linker.observe_new_ids(new_ids, current_ids, frame_index)
+            linker.observe_new_ids(new_ids, current_ids, frame_index)  # Also creates candidates list for potential matches
             
-            # record start list index for new ids
             current_boxes_len = len(boxes_data)
             for new_id in new_ids:
-                linker.record_list_index(new_id, current_boxes_len)
+                linker.record_start_list_index(new_id, current_boxes_len) # Record the start index for faster search
 
-            linker.drop_visible_candidates(current_ids, frame_index)
+            linker.drop_visible_candidates(current_ids, frame_index) # Filter out current detected players ids
 
+            # Extract well defined crops of players that need to be extracted
             pending_extract = []
             for p in parsed:
                 if p["classId"] != PLAYER_CLASS_ID or not linker.needs_pending_vector(p["trackId"]):
@@ -102,11 +108,11 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 pending_extract.append((p["trackId"], crop))
 
             if pending_extract:
-                vectors = _timed_extract([crop for _, crop in pending_extract], stats)
-                for (track_id, _), vector in zip(pending_extract, vectors):
+                vectors = _timed_extract([crop for _, crop in pending_extract], stats) # Extract ReID Vectors with a batch
+                for (track_id, _), vector in zip(pending_extract, vectors): # Associate the vector with the player id
                     linker.remember_vector(track_id, vector)
                     extracted_this_frame.add(track_id)
-                    last_reid_frame[track_id] = frame_index
+                    last_reid_frame[track_id] = frame_index  # Update the last frame a player's crop was taken
 
             matches = linker.match_ready_pending(frame_index)
             for new_id, canonical_id in matches.items():
@@ -116,7 +122,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                 # rewrite begins from the start list index and parsed begins from 0
                 start_list_index = linker.get_start_list_index(new_id)
                 _rewrite_track_id(boxes_data, new_id, canonical_id, start_list_index)
-                _rewrite_track_id(parsed, new_id, canonical_id, start_frame=0)
+                _rewrite_track_id(parsed, new_id, canonical_id, start_list_index=0)
 
                 _merge_galleries(crop_gallery, new_id, canonical_id)
                 last_reid_frame[canonical_id] = frame_index

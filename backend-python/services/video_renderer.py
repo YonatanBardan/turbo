@@ -1,9 +1,7 @@
 import os
 import cv2
 
-
 from typing import Optional
-
 
 def _player_ids_from_payload(shots: list, player_ids: Optional[list] = None) -> list:
     ids = set()
@@ -93,7 +91,7 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list, play
     if not fps or fps <= 0:
         fps = 30.0
 
-    output_dir = r"C:\Users\yonat\OneDrive\Desktop\Stuff\semester 2\Projects\Code Name - Tourbo\Process\Basketball-Logic"
+    output_dir = r"C:\Users\yonat\OneDrive\Desktop\Projects\Code Name - Tourbo\Process\Basketball-Logic"
     os.makedirs(output_dir, exist_ok=True)
     base_name = os.path.basename(video_path)
     name_only, extension = os.path.splitext(base_name)
