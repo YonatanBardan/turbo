@@ -119,6 +119,7 @@ def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     stats["reid_crops"] += len(crops)
     return vectors
 
+# Frame model processing and parsing into a list
 def _detect_and_parse_frame(model: YOLO, frame: object, tracker_path: str, stats: dict, player_class_id: int, linker: IdentityLinker) -> tuple[list, set]:
     # Start the clock and run the model
     yolo_started = time.perf_counter()

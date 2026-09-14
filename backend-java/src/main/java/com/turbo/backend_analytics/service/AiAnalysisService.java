@@ -1,6 +1,6 @@
 package com.turbo.backend_analytics.service;
 
-import com.turbo.backend_analytics.component.BallStateTracker;
+import com.turbo.backend_analytics.component.ball.BallStateTracker;
 import com.turbo.backend_analytics.component.PlayerRosterBuilder;
 import com.turbo.backend_analytics.component.PlayerRosterCleaner;
 import com.turbo.backend_analytics.dto.*;

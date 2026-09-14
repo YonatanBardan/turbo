@@ -1,5 +1,6 @@
-package com.turbo.backend_analytics.component;
+package com.turbo.backend_analytics.component.ball;
 
+import com.turbo.backend_analytics.component.ShotPhysicsEngine;
 import com.turbo.backend_analytics.dto.DetectionBox;
 import com.turbo.backend_analytics.dto.GameAnalysis;
 import com.turbo.backend_analytics.dto.PlayerStats;
