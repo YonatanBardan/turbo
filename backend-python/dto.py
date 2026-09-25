@@ -22,8 +22,13 @@ class DetectionData(BaseModel):
     confidence: float
     trackId: int = -1
 
+class BallFrameState(BaseModel):
+    frameIndex: int
+    label: str 
+
 class RenderRequest(BaseModel):
     videoPath: str
     shots: list[ShotData]
     detections: list[DetectionData]
     playerIds: list[int] = []
+    ballStates: list[BallFrameState] = []

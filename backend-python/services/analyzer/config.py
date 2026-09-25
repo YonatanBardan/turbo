@@ -2,10 +2,13 @@ import os
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(_CURRENT_DIR))
-TRACKER_PATH = os.path.normpath(os.path.join(ROOT_DIR, "custom_bytetrack.yaml"))
-MODEL_PATH = os.path.normpath(os.path.join(ROOT_DIR, "models", "best-Yolo26l-0.91-0.61_openvino_model"))
+PLAYER_TRACKER_PATH = os.path.normpath(os.path.join(ROOT_DIR, "player_bytetrack.yaml"))  # player BoT-SORT config
+BALL_TRACKER_PATH = os.path.normpath(os.path.join(ROOT_DIR, "ball_bytetrack.yaml"))  # ball BoT-SORT config
+MODEL_PATH = os.path.normpath(os.path.join(ROOT_DIR, "models", "best-Yolol26-0.929-0.636_openvino_model"))
 
 # YOLO and tracking limits
+BALL_CLASS_ID = 0
+HOOP_CLASS_ID = 1 
 PLAYER_CLASS_ID = 2
 EDGE_MARGIN = 4
 MIN_ASPECT = 1.6

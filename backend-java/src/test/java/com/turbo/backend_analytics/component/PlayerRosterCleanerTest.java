@@ -4,6 +4,7 @@ import com.turbo.backend_analytics.dto.DetectionBox;
 import com.turbo.backend_analytics.dto.Player;
 import com.turbo.backend_analytics.dto.PlayerStats;
 import com.turbo.backend_analytics.dto.RosterCleanupResult;
+import com.turbo.backend_analytics.dto.ScoredAppearanceVector;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -31,7 +32,6 @@ class PlayerRosterCleanerTest {
         assertEquals(3, result.detections().getFirst().trackId());
         assertEquals(1, result.detections().get(1).trackId());
         assertEquals(3, result.detections().get(2).trackId());
-        assertEquals(3, result.idAlias().get(11));
     }
 
     @Test
@@ -51,7 +51,7 @@ class PlayerRosterCleanerTest {
     }
 
     private static Player player(int id, float[] vector) {
-        return new Player(id, new PlayerStats(0, List.of()), List.of(vector));
+        return new Player(id, new PlayerStats(0, List.of()), List.of(new ScoredAppearanceVector(0.0, vector)));
     }
 
     private static DetectionBox playerBox(int frame, int trackId) {

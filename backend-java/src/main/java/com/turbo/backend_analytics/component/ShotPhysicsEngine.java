@@ -30,9 +30,17 @@ public class ShotPhysicsEngine {
             Map<Integer, List<DetectionBox>> frames,
             int startFrame,
             int maxFrame,
-            List<DetectionBox> alreadyTracked
+            List<DetectionBox> alreadyTracked,
+            DetectionBox shooter
     ) {
-        List<DetectionBox> path = alreadyTracked == null ? new ArrayList<>() : new ArrayList<>(alreadyTracked);
+        List<DetectionBox> path = new ArrayList<>();
+        if (alreadyTracked != null) {
+            for (DetectionBox tracked : alreadyTracked) {
+                if (isOnShotPath(tracked, shooter)) {
+                    path.add(tracked);
+                }
+            }
+        }
         DetectionBox liveHoop = hoop;
         boolean reachedHoopHeight = false;
         double peakY = Double.MAX_VALUE;
@@ -49,7 +57,8 @@ public class ShotPhysicsEngine {
             if (ball == null) {
                 continue;
             }
-            if (lastBall == null || ball.frameIndex() != lastBall.frameIndex()) {
+            // Screen Y grows downward. Keep a ball only above 120% of the last possessed shooter Y.
+            if (isOnShotPath(ball, shooter) && (lastBall == null || ball.frameIndex() != lastBall.frameIndex())) {
                 path.add(ball);
             }
 
@@ -74,6 +83,18 @@ public class ShotPhysicsEngine {
         }
 
         return new ShotFlight(endFrame, path);
+    }
+
+    private static boolean isOnShotPath(DetectionBox ball, DetectionBox shooter) {
+        if (ball == null) {
+            return false;
+        }
+        if (shooter == null) {
+            return true;
+        }
+        // 120% of the last possessed shooter bounding box
+        double limit = shooter.y() * 1.25;
+        return centerY(ball) <= limit;
     }
 
     // Updates: Shot's shooter's data and make probability of the shot
@@ -113,11 +134,14 @@ public class ShotPhysicsEngine {
             if (inBackboardZone) {
                 double oldSpeedX = prev.x() - past.x();
                 double newSpeedX = curr.x() - prev.x();
-                boolean reversed = (oldSpeedX * newSpeedX) < -4.0;            // Bounced backword from the collision
-                double spikeThreshold = Math.max(curr.width() * 0.1, 1.0);   // X velocity changed drastically
+                double oldSpeedY = prev.y() - past.y();
+                double newSpeedY = curr.y() - prev.y();
 
-                boolean collisionSpike = Math.abs(newSpeedX - oldSpeedX) > spikeThreshold;
-                if (reversed || collisionSpike) {
+                // ADDED FIX: Also checks for sudden loss of Y momentum (Bank shots don't always reverse X)
+                boolean hitGlass = (oldSpeedY < -2.0 && newSpeedY > 1.0) || 
+                                   (Math.abs(newSpeedX - oldSpeedX) > Math.max(curr.width() * 0.1, 1.0));
+                
+                if (hitGlass) {
                     bounceIndex = i;
                     break;
                 }
@@ -154,7 +178,17 @@ public class ShotPhysicsEngine {
             double ballCenterY = ball.y() + (ball.height() / 2.0);
 
             // Only analyze frames near or below the top of the rim
-            if (ballCenterY >= (hoop.y() - hoop.height())) {
+            if (ballCenterY >= (hoop.y() - hoop.height()/3.0)) {
+                
+                // --- ADDED GUARD: Z-Axis Parallax Guard ---
+                // If the ball width is abnormally large/small compared to the hoop, 
+                // it is an optical illusion falling between the camera and the rim.
+                double scaleRatio = ball.width() / hoop.width();
+                if (scaleRatio > 0.85 || scaleRatio < 0.30) {
+                    continue; // Skip this frame
+                }
+                // ------------------------------------------
+
                 double diffX = Math.abs(ballCenterX - hoopCenterX);
                 double diffY = Math.abs(ballCenterY - hoopCenterY);
                 double distanceToCenter = (diffX * diffX) + (diffY * diffY);
@@ -185,20 +219,26 @@ public class ShotPhysicsEngine {
             }
         }
 
+        // UPDATED MATH: Flattened Probability Curve using Normalized Ratios
+        double hoopRadius = hoop.width() / 2.0;
         double visualProbability;
+        
         if (bestObservedX == -1) {
-            visualProbability = 0.0; // No valid downward path found (bounced out or missed entirely)
+            visualProbability = 0.0; // No valid downward path found (bounced out, missed entirely, or illusion)
         } else {
             double visualDistance = Math.abs(hoopCenterX - bestObservedX);
-            visualProbability = (-0.0001168 * visualDistance * visualDistance) - (0.01229 * visualDistance) + 0.957;
-            visualProbability = Math.max(0.0, visualProbability);
+            double visualRatio = visualDistance / hoopRadius;
+            visualProbability = 1.0 - ((visualRatio * visualRatio) / 4.0);
+            visualProbability = Math.min(1.0, Math.max(0.0, visualProbability));
         }
+        
         if (predictedX == -1) return visualProbability;
 
-        // Probability calculated by "Least Squared" which: (0, 0.95), (15, 0.7), (30, 0.5), (50, 0.05)
-        double distance = Math.abs(hoopCenterX - predictedX);
-        double probability = (-0.0001168 * distance * distance) - (0.01229 * distance) + 0.957;
-        probability = Math.max(0.0, probability);
+        // UPDATED MATH: Flattened Probability Curve for Predicted Path
+        double mathDistance = Math.abs(hoopCenterX - predictedX);
+        double mathRatio = mathDistance / hoopRadius;
+        double probability = 1.0 - ((mathRatio * mathRatio) / 4.2);
+        probability = Math.min(1.0, Math.max(0.0, probability));
 
         return (probability * 0.4) + (visualProbability * 0.6);
     }

@@ -1,7 +1,0 @@
-tracker_type: bytetrack
-track_high_thresh: 0.5  # threshold for tracking high confidence detections
-track_low_thresh: 0.1   # threshold for tracking low confidence detections
-new_track_thresh: 0.6   # threshold for new track
-track_buffer: 90        # short term memory of the bytetrack
-match_thresh: 0.8       # threshold for matching detections to tracks  ----> threshold == confidence score
-fuse_score: true        # fuse score of the detections and the tracks

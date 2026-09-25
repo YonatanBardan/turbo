@@ -4,15 +4,14 @@ import com.turbo.backend_analytics.dto.DetectionBox;
 
 import java.util.List;
 
-import static com.turbo.backend_analytics.component.ball.BallSession.DISTANCE_GROW_PX;
 import static com.turbo.backend_analytics.component.ball.BallSession.LOOSE_SAME_HOLDER_DELAY;
-import static com.turbo.backend_analytics.component.ball.BallSession.RELEASE_GROW_FRAMES;
+import static com.turbo.backend_analytics.component.ball.BallSession.MISSING_BALL_PASS_FRAMES;
 import static com.turbo.backend_analytics.component.ball.BallSession.SHOT_RISE_MIN_POINTS;
 import static com.turbo.backend_analytics.component.ball.BallSession.SHOT_RISE_PX;
 import static com.turbo.backend_analytics.component.ball.BallSession.SHOT_SHOULDER_RATIO;
-import static com.turbo.backend_analytics.util.GeometryUtil.centerDistance;
 import static com.turbo.backend_analytics.util.GeometryUtil.centerY;
 import static com.turbo.backend_analytics.util.GeometryUtil.findBallPossessor;
+import static com.turbo.backend_analytics.util.GeometryUtil.isNearPlayer;
 import static com.turbo.backend_analytics.util.GeometryUtil.findPlayerByTrackId;
 
 class BallPossessionHandler {
@@ -22,6 +21,7 @@ class BallPossessionHandler {
             DetectionBox possessor = ball != null ? findBallPossessor(ball, players) : null;
             if (possessor != null) {
                 session.enterPossessed(possessor, false);
+                session.markPossessedRelease(ball, possessor);
             }
             return;
         }
@@ -33,7 +33,19 @@ class BallPossessionHandler {
         }
 
         if (ball == null) {
+            session.framesWithoutBall++;
             return;
+        }
+
+        int missed = session.framesWithoutBall;
+        session.framesWithoutBall = 0;
+        if (missed >= MISSING_BALL_PASS_FRAMES) {
+            DetectionBox nextHolder = findBallPossessor(ball, players);
+            if (nextHolder != null && nextHolder.trackId() != session.holder.trackId()) {
+                session.enterPossessed(nextHolder, true);
+                session.markPossessedRelease(ball, nextHolder);
+                return;
+            }
         }
 
         DetectionBox distanceRef = session.holder != null ? session.holder : session.lastHolderBox;
@@ -41,17 +53,11 @@ class BallPossessionHandler {
             return;
         }
 
-        double dist = centerDistance(ball, distanceRef);
-        if (session.lastDistance >= 0 && dist > session.lastDistance + DISTANCE_GROW_PX) {
-            session.growingFrames++;
-        } else {
-            session.growingFrames = 0;
-        }
-        session.lastDistance = dist;
-
-        if (session.growingFrames >= RELEASE_GROW_FRAMES) {
+        if (!isNearPlayer(ball, distanceRef)) {
             session.enterLoose(ball, frame);
+            return;
         }
+        session.markPossessedRelease(ball, distanceRef);
     }
 
     static void handleLoose(DetectionBox ball, List<DetectionBox> players, BallSession session, int frame) {
@@ -60,6 +66,14 @@ class BallPossessionHandler {
         }
 
         if (ball != null && yReducedSignificantly(session, players)) {
+            session.enterShot(frame);
+            return;
+        }
+
+        // High release, then any loose-path ball above the hoop Y, becomes a shot.
+        if (session.phase != BallSession.Phase.SHOT
+                && session.releasedFromTop
+                && reachedHoopY(session.hoop, session.ballPath)) {
             session.enterShot(frame);
             return;
         }
@@ -82,7 +96,7 @@ class BallPossessionHandler {
         DetectionBox last = session.ballPath.getLast();
         boolean movedUp = session.looseStartY - centerY(last) >= SHOT_RISE_PX;
         if (!movedUp) {
-            return false;
+            return false; 
         }
 
         DetectionBox shooter = findPlayerByTrackId(players, session.lastHolderId);
@@ -99,5 +113,18 @@ class BallPossessionHandler {
             return false;
         }
         return true;
+    }
+
+    static boolean reachedHoopY(DetectionBox hoop, List<DetectionBox> ballPath) {
+        if (hoop == null || ballPath == null || ballPath.isEmpty()) {
+            return false;
+        }
+        double hoopY = hoop.y();
+        for (DetectionBox ball : ballPath) {
+            if (centerY(ball) <= hoopY) {
+                return true;
+            }
+        }
+        return false;
     }
 }

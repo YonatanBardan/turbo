@@ -6,8 +6,10 @@ import java.util.List;
 public record VideoAnalysisResponse(
 
     double fps,
+    int totalFrames,
     List<DetectionBox> boxes,
     List<Shot> shots,
-    List<Player> players
+    List<Player> players,
+    List<BallFrameState> ballStates
 
 ){}

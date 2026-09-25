@@ -1,8 +1,14 @@
 package com.turbo.backend_analytics.util;
 
+import com.turbo.backend_analytics.dto.ScoredAppearanceVector;
+
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public final class AppearanceSimilarity {
+
+    private static final int TOP_K_COSINE = 3;
 
     private AppearanceSimilarity() {}
 
@@ -24,16 +30,22 @@ public final class AppearanceSimilarity {
         return dot / (Math.sqrt(na) * Math.sqrt(nb));
     }
 
-    public static double maxCosine(List<float[]> galleryA, List<float[]> galleryB) {
+    public static double maxCosine(List<ScoredAppearanceVector> galleryA, List<ScoredAppearanceVector> galleryB) {
         if (galleryA == null || galleryB == null || galleryA.isEmpty() || galleryB.isEmpty()) {
             return 0.0;
         }
-        double best = 0.0;
-        for (float[] a : galleryA) {
-            for (float[] b : galleryB) {
-                best = Math.max(best, cosine(a, b));
+        List<Double> scores = new ArrayList<>();
+        for (ScoredAppearanceVector a : galleryA) {
+            for (ScoredAppearanceVector b : galleryB) {
+                scores.add(cosine(a.vector(), b.vector()));
             }
         }
-        return best;
+        scores.sort(Comparator.reverseOrder());
+        int used = Math.min(TOP_K_COSINE, scores.size());
+        double avg = 0.0;
+        for (int i = 0; i < used; i++) {
+            avg += scores.get(i);
+        }
+        return avg / used;
     }
 }

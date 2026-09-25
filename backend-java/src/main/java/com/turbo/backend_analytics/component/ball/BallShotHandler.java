@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.turbo.backend_analytics.component.ball.BallPossessionHandler.reachedHoopY;
 import static com.turbo.backend_analytics.component.ball.BallSession.BALL;
 import static com.turbo.backend_analytics.util.GeometryUtil.findHighestConfidence;
 
@@ -30,14 +31,17 @@ class BallShotHandler {
                 frames,
                 frame,
                 maxFrame,
-                session.ballPath
+                session.ballPath,
+                session.lastHolderBox
         );
         if (flight != null && flight.ballPath() != null) {
             session.ballPath.clear();
             session.ballPath.addAll(flight.ballPath());
         }
         int endFrame = flight != null ? flight.endFrame() : frame;
-        finishShot(session, endFrame);
+        if (reachedHoopY(session.hoop, session.ballPath)) {
+            finishShot(session, endFrame);
+        }
 
         List<DetectionBox> endBoxes = frames.getOrDefault(endFrame, List.of());
         DetectionBox ball = findHighestConfidence(endBoxes, BALL);
@@ -46,8 +50,9 @@ class BallShotHandler {
     }
 
     void finishShot(BallSession session, int finalFrame) {
-        DetectionBox shooterBox = session.lastHolderBox;
-        int shooterId = session.lastHolderId;
+        int countStart = session.shotCountStartFrame();
+        int shooterId = session.resolveShotShooter(countStart);
+        DetectionBox shooterBox = session.resolveShotShooterBox(countStart, shooterId);
         if (shooterBox == null || session.hoop == null || shooterId < 0) {
             return;
         }

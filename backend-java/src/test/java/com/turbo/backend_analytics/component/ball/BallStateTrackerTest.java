@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -83,12 +84,30 @@ class BallStateTrackerTest {
         verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
     }
 
+    @Test
+    void ballThatNeverReachesHoopYIsNotAShot() {
+        BallStateTracker tracker = new BallStateTracker(physicsEngine);
+        GameAnalysis result = tracker.analyze(highPassNeverReachesHoopScript(), 30.0);
+
+        assertEquals(0, result.shots().size());
+        verify(physicsEngine, never()).generateShot(any(), any(), anyList(), anyDouble(), anyInt());
+    }
+
     private void stubMadeShot() {
-        when(physicsEngine.analyzeFlight(any(), any(), anyInt(), anyInt(), anyList()))
+        when(physicsEngine.analyzeFlight(any(), any(), anyInt(), anyInt(), anyList(), any()))
                 .thenAnswer(invocation -> {
+                    Map<Integer, List<DetectionBox>> frames = invocation.getArgument(1);
+                    int start = invocation.getArgument(2);
                     int max = invocation.getArgument(3);
-                    List<DetectionBox> prior = invocation.getArgument(4);
-                    return new ShotPhysicsEngine.ShotFlight(max, prior);
+                    List<DetectionBox> path = new ArrayList<>(invocation.getArgument(4));
+                    for (int f = start; f <= max; f++) {
+                        for (DetectionBox box : frames.getOrDefault(f, List.of())) {
+                            if (box.classId() == 0) {
+                                path.add(box);
+                            }
+                        }
+                    }
+                    return new ShotPhysicsEngine.ShotFlight(max, path);
                 });
         when(physicsEngine.generateShot(any(), any(), anyList(), anyDouble(), anyInt()))
                 .thenAnswer(invocation -> {
@@ -115,7 +134,7 @@ class BallStateTrackerTest {
             } else if (f <= 22) {
                 boxes.add(ball(f, 330, 140));
             } else if (f <= 40) {
-                boxes.add(ball(f, 330 - (f - 22) * 8, 140 - (f - 22) * 6));
+                boxes.add(ball(f, 330 - (f - 22) * 8, 140 - (f - 22) * 7));
             } else {
                 boxes.add(ball(f, 210, 80));
             }
@@ -136,9 +155,30 @@ class BallStateTrackerTest {
             } else if (f <= 40) {
                 // Ball occluded (back to camera) — stay possessed.
             } else if (f <= 56) {
-                boxes.add(ball(f, 250, 120 - (f - 40) * 6));
+                boxes.add(ball(f, 250, 120 - (f - 40) * 7));
             } else {
                 boxes.add(ball(f, 210, 80));
+            }
+        }
+        return boxes;
+    }
+
+    private List<DetectionBox> highPassNeverReachesHoopScript() {
+        List<DetectionBox> boxes = new ArrayList<>();
+        DetectionBox hoop = box(0, 1, 200, 30, 40, 20, -1);
+        DetectionBox passer = player(0, 3, 60);
+        DetectionBox catcher = player(0, 7, 320);
+
+        for (int f = 0; f <= 40; f++) {
+            boxes.add(copy(hoop, f));
+            boxes.add(copy(passer, f));
+            boxes.add(copy(catcher, f));
+            if (f <= 6) {
+                boxes.add(ball(f, 70, 140));
+            } else if (f <= 14) {
+                boxes.add(ball(f, 70 + (f - 6) * 20, 140 - (f - 6) * 4));
+            } else {
+                boxes.add(ball(f, 330, 100));
             }
         }
         return boxes;

@@ -69,6 +69,17 @@ def is_available() -> bool:
     return _get_extractor() is not None
 
 
+def update_appearance(existing_vector, new_vector, alpha: float = 0.9):
+    # One occluded frame only moves the stored look by (1 - alpha).
+    existing = np.asarray(existing_vector, dtype=np.float32).reshape(-1)
+    new = np.asarray(new_vector, dtype=np.float32).reshape(-1)
+    updated = (alpha * existing) + ((1.0 - alpha) * new)
+    norm = float(np.linalg.norm(updated))
+    if norm <= 0.0:
+        return updated
+    return updated / norm
+
+
 def cosine_similarity(a, b) -> float:
     va = np.asarray(a, dtype=np.float32).reshape(-1)
     vb = np.asarray(b, dtype=np.float32).reshape(-1)

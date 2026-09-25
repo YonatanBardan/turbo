@@ -5,5 +5,5 @@ import java.util.List;
 public record Player(
         int id,
         PlayerStats stats,
-        List<float[]> appearanceVectors
+        List<ScoredAppearanceVector> appearanceVectors
 ) {}
