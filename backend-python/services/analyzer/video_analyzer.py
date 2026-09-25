@@ -5,30 +5,31 @@ import time
 import cv2 # Computer Vision Library - 3D NumPy Arrays
 from ultralytics import YOLO
 
-from services.analyzer.config import MODEL_PATH, TRACKER_PATH, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
+from services.analyzer.config import MODEL_PATH, PLAYER_TRACKER_PATH, BALL_TRACKER_PATH, BALL_CLASS_ID, HOOP_CLASS_ID, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
 from services.identity_linker import IdentityLinker
 from services.reid_extractor import extract as extract_reid_vectors
 from services.reid_extractor import is_available as reid_is_available
-from services.analyzer.utils import _box_track_id, _is_full_body, _rewrite_track_id
+from services.analyzer.utils import _is_full_body, _rewrite_track_id
 from services.analyzer.crops import _crop_score, _crop_player, _keep_top_crop, _merge_galleries
 
 model = YOLO(MODEL_PATH, task="detect")
 logger = logging.getLogger(__name__)
 
 # Process the video and return the fps, boxes data, and players vectors
-def process_video(file_path: str) -> tuple[float, list, list]:
+def process_video(file_path: str) -> tuple[float, list, list, int]:
 
     cap = cv2.VideoCapture(file_path)
     if not cap.isOpened():
         raise ValueError("OpenCV could not open the video")
 
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if not fps or fps <= 0:
-        fps = 30.0 # Default to 30 fps
+    if not fps or fps <= 0: 
+        fps = 30.0 # Default to 30 fps 
 
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     linker = IdentityLinker() # New instance of IdentityLinker
+    player_tracker, ball_tracker = _new_trackers() # One tracker per video, so ids do not carry into the next upload
     reid_ready = reid_is_available()
     refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS)) # Cooldown timer for a new crop
 
@@ -44,7 +45,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
         if not ret:
             break
 
-        parsed, current_ids = _detect_and_parse_frame(model,frame, TRACKER_PATH, stats, PLAYER_CLASS_ID, linker) # Detect and parse the frame
+        parsed, current_ids = _detect_and_parse_frame(model, frame, player_tracker, ball_tracker, stats, linker) # Detect once, then track players and the ball separately
 
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
         extracted_this_frame = set() # Set of player ids that have been extracted this frame
@@ -66,9 +67,9 @@ def process_video(file_path: str) -> tuple[float, list, list]:
                                                 reid_ready, extracted_this_frame, linker, last_reid_frame, refresh_gap)
 
         if refresh_pending:
-            vectors = _timed_extract([crop for _, crop in refresh_pending], stats)
-            for (track_id, _), vector in zip(refresh_pending, vectors):
-                linker.remember_vector(track_id, vector)
+            vectors = _timed_extract([crop for _, crop, _ in refresh_pending], stats)
+            for (track_id, _, confidence), vector in zip(refresh_pending, vectors):
+                linker.remember_vector(track_id, vector, confidence)
                 last_reid_frame[track_id] = frame_index
 
         frame_index += 1
@@ -77,18 +78,24 @@ def process_video(file_path: str) -> tuple[float, list, list]:
 
     players = []
     all_crops = []
+    all_scores = []
     slices = []
     for track_id in sorted(crop_gallery.keys()):
         crops = [crop for _, _, crop in crop_gallery[track_id]]
+        scores = [score for score, _, _ in crop_gallery[track_id]]
         start = len(all_crops)
         all_crops.extend(crops)
+        all_scores.extend(scores)
         slices.append((int(track_id), start, len(all_crops)))
 
     all_vectors = _timed_extract(all_crops, stats) if all_crops else []
     for track_id, start, end in slices:
         players.append({
             "id": track_id,
-            "appearanceVectors": all_vectors[start:end],
+            "appearanceVectors": [
+                {"score": all_scores[i], "vector": all_vectors[i]}
+                for i in range(start, min(end, len(all_vectors)))
+            ],
         })
 
     elapsed = max(time.perf_counter() - started_at, 1e-6)
@@ -102,7 +109,7 @@ def process_video(file_path: str) -> tuple[float, list, list]:
         frame_index / elapsed,
     )
 
-    return fps, boxes_data, players
+    return fps, boxes_data, players, frame_index
 
 
 # -----------------------------
@@ -119,48 +126,104 @@ def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     stats["reid_crops"] += len(crops)
     return vectors
 
-def _detect_and_parse_frame(model: YOLO, frame: object, tracker_path: str, stats: dict, player_class_id: int, linker: IdentityLinker) -> tuple[list, set]:
+def _make_tracker(path: str):
+    from ultralytics.trackers.bot_sort import BOTSORT
+    from ultralytics.utils import IterableSimpleNamespace, YAML
+
+    cfg = IterableSimpleNamespace(**YAML.load(path))
+    return BOTSORT(args=cfg)
+
+
+def _new_trackers():
+    from ultralytics.trackers.basetrack import BaseTrack
+
+    BaseTrack.reset_id() # Shared id counter, reset once so this video does not continue the last one
+    return _make_tracker(PLAYER_TRACKER_PATH), _make_tracker(BALL_TRACKER_PATH)
+
+
+def _slice_class(boxes, class_id: int):
+    if boxes is None or len(boxes) == 0:
+        return boxes
+    return boxes[boxes.cls == class_id]
+
+
+# Frame model processing and parsing into a list
+def _detect_and_parse_frame(model: YOLO, frame: object, player_tracker, ball_tracker, stats: dict, linker: IdentityLinker) -> tuple[list, set]:
     # Start the clock and run the model
     yolo_started = time.perf_counter()
-    results = model.track(frame, persist=True, verbose=False, tracker=tracker_path)
+    results = model.predict(frame, verbose=False)
     
     # Stop the clock and save the time to the dictionary
     stats["yolo_ms"] += (time.perf_counter() - yolo_started) * 1000.0
     
     # Extract the raw data
     result_boxes = results[0].boxes
-    parsed = _result_boxes_to_parsed(result_boxes, linker)
+    player_rows = player_tracker.update(_slice_class(result_boxes, PLAYER_CLASS_ID), frame)
+    ball_rows = ball_tracker.update(_slice_class(result_boxes, BALL_CLASS_ID), frame)
+    parsed = []
+    parsed.extend(_tracker_rows_to_parsed(player_rows, linker))
+    parsed.extend(_tracker_rows_to_parsed(ball_rows, linker))
+    parsed.extend(_untracked_boxes_to_parsed(_slice_class(result_boxes, HOOP_CLASS_ID)))
     
     # Currently on the court
     current_ids = {
         p["trackId"]
         for p in parsed
-        if p["classId"] == player_class_id and p["trackId"] >= 0
+        if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0
     }
     
     return parsed, current_ids
 
-# Convert the result boxes to parsed list
-def _result_boxes_to_parsed(result_boxes: list, linker: IdentityLinker) -> list:
+
+def _parsed_box(x1, y1, x2, y2, class_id: int, confidence: float, track_id: int) -> dict:
+    x1, y1, x2, y2 = float(x1), float(y1), float(x2), float(y2)
+    return {
+        "x1": x1,
+        "y1": y1,
+        "x2": x2,
+        "y2": y2,
+        "width": x2 - x1,
+        "height": y2 - y1,
+        "classId": class_id,
+        "confidence": confidence,
+        "trackId": track_id,
+    }
+
+
+def _tracker_rows_to_parsed(rows, linker: IdentityLinker) -> list:
     parsed = []
-    if result_boxes is not None:
-        for box in result_boxes:
-            xyxy = box.xyxy[0].tolist() # Convert the bounding box tensor to a list
-            x1, y1, x2, y2 = xyxy[0], xyxy[1], xyxy[2], xyxy[3]
-            track_id = linker.resolve(_box_track_id(box))
-            parsed.append({
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
-                "width": x2 - x1,
-                "height": y2 - y1,
-                "classId": int(box.cls[0]),
-                "confidence": float(box.conf[0]),
-                "trackId": track_id,
-            })
+    if rows is None or len(rows) == 0:
         return parsed
-    return []
+    if rows.ndim == 1:
+        rows = rows.reshape(1, -1)
+    for row in rows:
+        x1, y1, x2, y2 = row[0], row[1], row[2], row[3]
+        raw_track_id = int(row[4])
+        confidence = float(row[5])
+        class_id = int(row[6])
+        # Players go to ReID memory. The ball keeps the id from its own tracker.
+        if class_id == PLAYER_CLASS_ID:
+            track_id = linker.resolve(raw_track_id)
+        else:
+            track_id = raw_track_id
+        parsed.append(_parsed_box(x1, y1, x2, y2, class_id, confidence, track_id))
+    return parsed
+
+
+def _untracked_boxes_to_parsed(boxes) -> list:
+    parsed = []
+    if boxes is None or len(boxes) == 0:
+        return parsed
+    xyxy = boxes.xyxy
+    for index in range(len(boxes)):
+        x1, y1, x2, y2 = xyxy[index].tolist() # Convert the bounding box tensor to a list
+        parsed.append(_parsed_box(
+            x1, y1, x2, y2,
+            int(boxes.cls[index]),
+            float(boxes.conf[index]),
+            -1,
+        ))
+    return parsed
 
 
 def _extract_pending_players(parsed: list, frame: object, frame_w: int, frame_h: int, linker: IdentityLinker, stats: dict, extracted_this_frame: set, last_reid_frame: dict, frame_index: int) -> list:
@@ -169,19 +232,19 @@ def _extract_pending_players(parsed: list, frame: object, frame_w: int, frame_h:
 
     pending_extract = []
     for p in parsed:
-        if p["classId"] != PLAYER_CLASS_ID or not linker.needs_pending_vector(p["trackId"]):
+        if p["classId"] != PLAYER_CLASS_ID or p.get("occluded") or not linker.needs_pending_vector(p["trackId"]):
             continue
         if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
             continue
         crop = _crop_player(frame, p, frame_w, frame_h)
         if crop is None:
             continue
-        pending_extract.append((p["trackId"], crop))
+        pending_extract.append((p["trackId"], crop, p["confidence"]))
 
     if pending_extract:
-        vectors = _timed_extract([crop for _, crop in pending_extract], stats) # Extract ReID Vectors with a batch
-        for (track_id, _), vector in zip(pending_extract, vectors): # Associate the vector with the player id
-            linker.remember_vector(track_id, vector)
+        vectors = _timed_extract([crop for _, crop, _ in pending_extract], stats) # Extract ReID Vectors with a batch
+        for (track_id, _, confidence), vector in zip(pending_extract, vectors): # Associate the vector with the player id
+            linker.remember_vector(track_id, vector, confidence)
             extracted_this_frame.add(track_id)
             last_reid_frame[track_id] = frame_index  # Update the last frame a player's crop was taken
 
@@ -263,8 +326,8 @@ def _save_refresh_pending(
             "trackId": p["trackId"],
         })
 
-        # Filter out bad boxes
-        if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0:
+        # Filter out bad boxes 
+        if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0 or p.get("occluded"):
             continue
         if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
             continue
@@ -291,7 +354,7 @@ def _save_refresh_pending(
         needs_refresh = (frame_index - last) >= refresh_gap
         
         if needs_first or needs_refresh:
-            refresh_pending.append((p["trackId"], resized))
+            refresh_pending.append((p["trackId"], resized, p["confidence"]))
             
     # ReturnS the list of platers qualify for refresh
     return refresh_pending

@@ -1,6 +1,6 @@
 package com.turbo.backend_analytics.service;
 
-import com.turbo.backend_analytics.component.BallStateTracker;
+import com.turbo.backend_analytics.component.ball.BallStateTracker;
 import com.turbo.backend_analytics.component.PlayerRosterBuilder;
 import com.turbo.backend_analytics.component.PlayerRosterCleaner;
 import com.turbo.backend_analytics.dto.*;
@@ -58,20 +58,42 @@ public class AiAnalysisService {
                 pythonResponse.detections(),
                 pythonResponse.players()
         );
+        System.out.println("Roster before clean: " + rosterSummary(rawRoster));
         RosterCleanupResult cleaned = playerRosterCleaner.clean(
                 rawRoster,
                 pythonResponse.detections()
         );
+        System.out.println("Roster after clean: " + rosterSummary(cleaned.players()));
 
         GameAnalysis game = ballStateTracker.analyze(cleaned.detections(), fps);
         List<Player> players = applyStats(cleaned.players(), game.statsByPlayerId());
 
+        int totalFrames = pythonResponse.totalFrames() != null ? pythonResponse.totalFrames() : 0;
+
         return new VideoAnalysisResponse(
                 fps,
+                totalFrames,
                 cleaned.detections(),
                 game.shots(),
-                players
+                players,
+                game.ballStates()
         );
+    }
+
+    private static String rosterSummary(List<Player> roster) {
+        if (roster == null || roster.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder text = new StringBuilder("[");
+        for (int i = 0; i < roster.size(); i++) {
+            Player player = roster.get(i);
+            int vectors = player.appearanceVectors() == null ? 0 : player.appearanceVectors().size();
+            if (i > 0) {
+                text.append(", ");
+            }
+            text.append(player.id()).append(" (").append(vectors).append(" vectors)");
+        }
+        return text.append("]").toString();
     }
 
     private List<Player> applyStats(List<Player> roster, Map<Integer, PlayerStats> statsById) {
@@ -99,7 +121,8 @@ public class AiAnalysisService {
             String absoluteVideoPath,
             List<Shot> finishedShots,
             List<DetectionBox> boxes,
-            List<Player> players
+            List<Player> players,
+            List<BallFrameState> ballStates
     ) {
 
         List<Integer> playerIds = new ArrayList<>();
@@ -109,7 +132,13 @@ public class AiAnalysisService {
             }
         }
 
-        RenderRequest requestBody = new RenderRequest(absoluteVideoPath, finishedShots, boxes, playerIds);
+        RenderRequest requestBody = new RenderRequest(
+                absoluteVideoPath,
+                finishedShots,
+                boxes,
+                playerIds,
+                ballStates != null ? ballStates : List.of()
+        );
 
         RenderResponse pythonResponse = this.webClient.post()
                 .uri("/render")

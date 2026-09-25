@@ -1,0 +1,16 @@
+tracker_type: botsort
+track_high_thresh: 0.5  # threshold for tracking high confidence detections
+track_low_thresh: 0.1   # threshold for tracking low confidence detections
+new_track_thresh: 0.4   # threshold for new track
+track_buffer: 180       # keep track memory for (~6s at 30 fps)
+match_thresh: 0.70       # threshold for matching detections to tracks
+fuse_score: true        # fuse score of the detections and the tracks
+
+# BoT-SORT: compensate for a panning camera
+gmc_method: sparseOptFlow
+
+# BoT-SORT stays on motion and overlap only. OSNet in IdentityLinker is the visual match.
+proximity_thresh: 0.25
+appearance_thresh: 0.8
+with_reid: false
+model: auto 

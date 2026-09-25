@@ -14,10 +14,11 @@ app = FastAPI()
 def analyze_video(request: VideoAnalysisRequest):
 
     try:
-        fps, boxes_data, players = process_video(request.videoPath)
+        fps, boxes_data, players, total_frames = process_video(request.videoPath)
 
         return {
             "fps": fps,
+            "totalFrames": total_frames,
             "detections": boxes_data,
             "players": players,
         }
@@ -33,6 +34,7 @@ def render_video(request: RenderRequest):
             request.shots,
             request.detections,
             request.playerIds,
+            request.ballStates,
         )
         return {
             "outputPath": output_path,

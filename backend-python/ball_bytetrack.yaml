@@ -1,0 +1,14 @@
+tracker_type: botsort
+track_high_thresh: 0.2  # first association for a small, fast ball
+track_low_thresh: 0.1    # keep a faint ball detection
+new_track_thresh: 0.3   # a ball that reappears after a bounce can start an id
+track_buffer: 180
+match_thresh: 0.9        # threshold for matching detections to tracks
+fuse_score: false         # fuse score of the detections and the tracks
+
+gmc_method: sparseOptFlow 
+
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: true
+model: auto 

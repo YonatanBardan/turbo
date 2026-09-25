@@ -5,6 +5,5 @@ import java.util.Map;
 
 public record RosterCleanupResult(
         List<Player> players,
-        List<DetectionBox> detections,
-        Map<Integer, Integer> idAlias
+        List<DetectionBox> detections
 ) {}

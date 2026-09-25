@@ -79,7 +79,35 @@ def _draw_box_score(frame, stats: dict, ordered_ids: list[int], banner: str | No
         cv2.putText(frame, banner, (bx1 + 8, by2 - 6), font, b_scale, color, 2, cv2.LINE_AA)
 
 
-def create_scoreboard_video(video_path: str, shots: list, detections: list, player_ids: Optional[list] = None) -> str:
+def _draw_ball_state(frame, text: str, video_width: int) -> None:
+    if not text:
+        return
+    lines = [line for line in text.split("\n") if line]
+    if not lines:
+        return
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.5 if frame.shape[0] < 720 else 0.6
+    thickness = 1
+    pad = 8
+    gap = 6
+    sizes = [cv2.getTextSize(line, font, scale, thickness)[0] for line in lines]
+    line_h = max(size[1] for size in sizes) + gap
+    box_w = max(size[0] for size in sizes) + pad * 2
+    box_h = pad * 2 + line_h * len(lines)
+    x2 = video_width - 16
+    x1 = max(16, x2 - box_w)
+    y1 = 16
+    y2 = y1 + box_h
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), -1)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (220, 220, 220), 1)
+    text_y = y1 + pad + sizes[0][1]
+    for index, line in enumerate(lines):
+        color = (255, 255, 255) if index == 0 else (180, 220, 255)
+        cv2.putText(frame, line, (x1 + pad, text_y), font, scale, color, thickness, cv2.LINE_AA)
+        text_y += line_h
+
+
+def create_scoreboard_video(video_path: str, shots: list, detections: list, player_ids: Optional[list] = None, ball_states: Optional[list] = None) -> str:
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -123,9 +151,14 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list, play
         2: "Player",
     }
 
+    states_by_frame = {}
+    for state in ball_states or []:
+        states_by_frame[int(state.frameIndex)] = state.label
+
     banner = None
     banner_until = -1
     banner_hold = max(12, int(fps * 0.6))
+    ball_state_text = ""
     frame_index = 0
 
     while True:
@@ -157,8 +190,11 @@ def create_scoreboard_video(video_path: str, shots: list, detections: list, play
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
                 cv2.putText(frame, label, (x, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
+        if frame_index in states_by_frame:
+            ball_state_text = states_by_frame[frame_index]
         live_banner = banner if frame_index <= banner_until else None
         _draw_box_score(frame, stats, ordered_ids, live_banner, video_height)
+        _draw_ball_state(frame, ball_state_text, video_width)
         cv2.putText(frame, f"Frame: {frame_index}", (16, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         out.write(frame)

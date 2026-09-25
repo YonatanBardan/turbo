@@ -5,5 +5,6 @@ import java.util.Map;
 
 public record GameAnalysis(
         List<Shot> shots,
-        Map<Integer, PlayerStats> statsByPlayerId
+        Map<Integer, PlayerStats> statsByPlayerId,
+        List<BallFrameState> ballStates
 ) {}
