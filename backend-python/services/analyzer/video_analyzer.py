@@ -9,7 +9,7 @@ from services.analyzer.config import MODEL_PATH, PLAYER_TRACKER_PATH, BALL_TRACK
 from services.identity_linker import IdentityLinker
 from services.reid_extractor import extract as extract_reid_vectors
 from services.reid_extractor import is_available as reid_is_available
-from services.analyzer.utils import _is_full_body, _rewrite_track_id
+from services.analyzer.utils import _rewrite_track_id
 from services.analyzer.crops import _crop_score, _crop_player, _keep_top_crop, _merge_galleries
 
 model = YOLO(MODEL_PATH, task="detect")
@@ -46,6 +46,9 @@ def process_video(file_path: str) -> tuple[float, list, list, int]:
             break
 
         parsed, current_ids = _detect_and_parse_frame(model, frame, player_tracker, ball_tracker, stats, linker) # Detect once, then track players and the ball separately
+        players = [p for p in parsed if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0]
+        linker.remember_positions(players)
+        linker.observe_crop_frame(players, frame_index, frame_w, frame_h)
 
         new_ids = {player_id for player_id in current_ids if player_id not in linker.known_ids}
         extracted_this_frame = set() # Set of player ids that have been extracted this frame
@@ -75,6 +78,14 @@ def process_video(file_path: str) -> tuple[float, list, list, int]:
         frame_index += 1
 
     cap.release()
+
+    for box in boxes_data:
+        if box["classId"] == PLAYER_CLASS_ID and box["trackId"] >= 0:
+            box["trackId"] = linker.resolve(box["trackId"])
+    for track_id in list(crop_gallery.keys()):
+        root_id = linker.resolve(track_id)
+        if root_id != track_id:
+            _merge_galleries(crop_gallery, track_id, root_id)
 
     players = []
     all_crops = []
@@ -234,7 +245,7 @@ def _extract_pending_players(parsed: list, frame: object, frame_w: int, frame_h:
     for p in parsed:
         if p["classId"] != PLAYER_CLASS_ID or p.get("occluded") or not linker.needs_pending_vector(p["trackId"]):
             continue
-        if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
+        if not linker.accepted_this_frame(p["trackId"], frame_index):
             continue
         crop = _crop_player(frame, p, frame_w, frame_h)
         if crop is None:
@@ -255,16 +266,17 @@ def _resolve_and_merge_matches(linker: IdentityLinker, frame_index: int, boxes_d
     matches = linker.match_ready_pending(frame_index)
     for new_id, canonical_id in matches.items():
         linker.alias(new_id, canonical_id)
-        
+        root_id = linker.resolve(new_id)
+
         # rewrite track id and merge galleries
         # rewrite begins from the start list index and parsed begins from 0
         start_list_index = linker.get_start_list_index(new_id)
-        _rewrite_track_id(boxes_data, new_id, canonical_id, start_list_index)
-        _rewrite_track_id(parsed, new_id, canonical_id, start_list_index=0)
+        _rewrite_track_id(boxes_data, new_id, root_id, start_list_index)
+        _rewrite_track_id(parsed, new_id, root_id, start_list_index=0)
 
-        _merge_galleries(crop_gallery, new_id, canonical_id)
-        last_reid_frame[canonical_id] = frame_index
-        extracted_this_frame.add(canonical_id)
+        _merge_galleries(crop_gallery, new_id, root_id)
+        last_reid_frame[root_id] = frame_index
+        extracted_this_frame.add(root_id)
 
     linker.commit_ready_unmatched()
 
@@ -329,7 +341,7 @@ def _save_refresh_pending(
         # Filter out bad boxes 
         if p["classId"] != PLAYER_CLASS_ID or p["trackId"] < 0 or p.get("occluded"):
             continue
-        if not _is_full_body(p["x1"], p["y1"], p["x2"], p["y2"], frame_w, frame_h):
+        if not linker.accepted_this_frame(p["trackId"], frame_index):
             continue
 
         # Grade the photo quality

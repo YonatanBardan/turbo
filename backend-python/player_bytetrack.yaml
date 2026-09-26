@@ -1,9 +1,9 @@
 tracker_type: botsort
 track_high_thresh: 0.5  # threshold for tracking high confidence detections
-track_low_thresh: 0.1   # threshold for tracking low confidence detections
+track_low_thresh: 0.2   # threshold for tracking low confidence detections
 new_track_thresh: 0.4   # threshold for new track
 track_buffer: 180       # keep track memory for (~6s at 30 fps)
-match_thresh: 0.70       # threshold for matching detections to tracks
+match_thresh: 0.65       # threshold for matching detections to tracks
 fuse_score: true        # fuse score of the detections and the tracks
 
 # BoT-SORT: compensate for a panning camera
