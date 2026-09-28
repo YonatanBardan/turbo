@@ -27,3 +27,22 @@
 
 
 ## Phase 2 - 1X1 game:
+
+## License
+
+This project is licensed under the **AGPL-3.0 License**.
+
+### Third-Party Acknowledgements
+This project modifies code from several open-source works.
+
+* **BoT-SORT**: Multi-Pedestrian Tracking by Nir Aharon, Roy Orfaig, and Ben-Zion Bobrovsky. 
+  Used for camera motion compensation and tracking. Licensed under the MIT License. 
+  [GitHub Repository](https://github.com/NirAharon/BoT-SORT)
+  
+* **Torchreid (OSNet)**: Deep Learning Person Re-Identification by Kaiyang Zhou and Tao Xiang. 
+  Used for player ReID vector extraction. Licensed under the MIT License.
+  [GitHub Repository](https://github.com/KaiyangZhou/deep-person-reid)
+
+* **Ultralytics YOLO**: by Ultralytics.
+  Used for court and basketball detection. Licensed under the AGPL-3.0 License.
+  [GitHub Repository](https://github.com/ultralytics/ultralytics)
