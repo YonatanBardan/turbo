@@ -102,18 +102,6 @@ public class AiAnalysisService {
             PlayerStats stats = statsById.getOrDefault(player.id(), player.stats());
             withStats.add(new Player(player.id(), stats, player.appearanceVectors()));
         }
-        for (Map.Entry<Integer, PlayerStats> extra : statsById.entrySet()) {
-            boolean present = false;
-            for (Player player : withStats) {
-                if (player.id() == extra.getKey()) {
-                    present = true;
-                    break;
-                }
-            }
-            if (!present) {
-                withStats.add(new Player(extra.getKey(), extra.getValue(), List.of()));
-            }
-        }
         return withStats;
     }
 

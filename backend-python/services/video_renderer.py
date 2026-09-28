@@ -8,13 +8,6 @@ def _player_ids_from_payload(shots: list, player_ids: Optional[list] = None) -> 
     if player_ids:
         for player_id in player_ids:
             ids.add(int(player_id))
-    for shot in shots:
-        shooter = int(getattr(shot, "shooterTrackId", -1))
-        passer = int(getattr(shot, "passerTrackId", -1))
-        if shooter >= 0:
-            ids.add(shooter)
-        if passer >= 0:
-            ids.add(passer)
     return sorted(ids)
 
 

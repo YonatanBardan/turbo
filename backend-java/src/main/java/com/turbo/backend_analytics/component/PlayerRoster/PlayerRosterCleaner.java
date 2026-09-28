@@ -32,7 +32,7 @@ public class PlayerRosterCleaner {
         // Skip and remove players with 0 vectors
         List<Integer> noVectors = new ArrayList<>();
         for (Player player : roster)
-            if (player.appearanceVectors() == null || player.appearanceVectors().isEmpty())
+            if (!hasAppearance(player))
                 noVectors.add(player.id());
         for (int id : noVectors)
             RemovePlayer(roster, id);
@@ -40,6 +40,24 @@ public class PlayerRosterCleaner {
         Map<Integer, Integer> alias = mergeIds(roster, boxes);            // Merge similar players Id's
         List<DetectionBox> rewritten = rewritePlayerBoxes(boxes, alias);  // Update the boxes with the new merged Id's
         return new RosterCleanupResult(roster, rewritten);                 // Returns the cleanup result
+    }
+
+    private static boolean hasAppearance(Player player) {
+        if (player.appearanceVectors() == null || player.appearanceVectors().isEmpty()) {
+            return false;
+        }
+        for (ScoredAppearanceVector scored : player.appearanceVectors()) {
+            float[] vector = scored.vector();
+            if (vector == null) {
+                continue;
+            }
+            for (float value : vector) {
+                if (value != 0f) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private Map<Integer, Integer> mergeIds(List<Player> roster, List<DetectionBox> boxes){
