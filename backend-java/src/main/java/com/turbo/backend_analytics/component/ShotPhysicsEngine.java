@@ -154,7 +154,7 @@ public class ShotPhysicsEngine {
         double hoopCenterY = hoop.y() + (hoop.height() / 2.0);
         double predictedX;
 
-        // If it's a bank shot - use the ball coordinates after the collision
+        // If it's a backboard shot - use the ball coordinates after the collision
         if (bounceIndex != -1) {
             if (ballPath.size() - bounceIndex >= 3) {
                 mathPath = ballPath.subList(bounceIndex, ballPath.size());
