@@ -5,10 +5,11 @@
 ## Models used
 
 ### The project using two finetuned models:
-     - Yolo26l for basketball detection (Classes: 0-ball, 1-hoop, 2-player).
-     - Yolo26x for court keypoints detection (Classes - paint-left, paint-right, freethrow-left,        freethrow-right)
+- Yolo26l for basketball detection (Classes: 0-ball, 1-hoop, 2-player).
+- Yolo26x for court keypoints detection (Classes - paint-left, paint-right, freethrow-left,        freethrow-right)
 ### Both models trained based on different suitable 3400, 4000 images datasets accordingly
- https://universe.roboflow.com/yonatans-workspace1/basketball-players-hoop-ball-detection2, https://universe.roboflow.com/yonatans-workspace1/court-detection-nd7jl
+- https://universe.roboflow.com/yonatans-workspace1/basketball-players-hoop-ball-detection2
+- https://universe.roboflow.com/yonatans-workspace1/court-detection-nd7jl
 
 ---
 
