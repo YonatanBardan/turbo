@@ -7,8 +7,8 @@
 ### The project using two finetuned models:
      - Yolo26l for basketball detection (Classes: 0-ball, 1-hoop, 2-player).
      - Yolo26x for court keypoints detection (Classes - paint-left, paint-right, freethrow-left,        freethrow-right)
-### Both models trained based on different suitable 4000 images datasets
- (https://universe.roboflow.com/yonatans-workspace1/basketball-players-hoop-ball-detection2, https://universe.roboflow.com/yonatans-workspace1/court-detection-nd7jl)
+### Both models trained based on different suitable 3400, 4000 images datasets accordingly
+ https://universe.roboflow.com/yonatans-workspace1/basketball-players-hoop-ball-detection2, https://universe.roboflow.com/yonatans-workspace1/court-detection-nd7jl
 
 ---
 
@@ -19,7 +19,7 @@
     2) FSM - the system tracks the ball state in each frame - ball losse, ball posssed, ball shot.
     When a shot is detected the system based on the parabolic trajectory of the ball based of the ball center coordinates and calculate the expected coordinate in the hoop Y coordinate level. then use the hoop width to assign a score for the ball trajectory made/miss. In addition, the system uses a visualProbability as the actual ball coordinate when crossing the hoop y coordinate for better average accurate result.
 
-    3) Locating the shot coordinates on the court using homography matrix to simulate the shot on a 2D half court presenting. 
+    3) Locating the shot coordinates on the court using homography matrix to map the shot coordinates on a 2D half court. 
 
     4) Rendering the video with the merged id's, players stats and the 2D stats map.
 
@@ -27,6 +27,11 @@
 ## Phase 1 - Player Shootaround:
 IN this phase the main goals are to be able to detect miss/made shots and to map the shots' locations in the half court 2D plain. we can see that in the video below the court is well drained with nearly invisible lines. the model lack accuracy but manage throgh it.
 In addition, the shot location set to be as of the last "possesd" frame which causing higher jumped shots to record a farther y location on the 2D map.
+<img width="463" height="498" alt="Screenshot 2026-09-29 194543" src="https://github.com/user-attachments/assets/709860c1-50f3-46cd-ab1b-27cb7bb999df" />
+<img width="381" height="350" alt="Screenshot 2026-09-29 194702" src="https://github.com/user-attachments/assets/572d517e-b2b5-4b5a-8857-21ef525cd3fa" />
+<img width="229" height="402" alt="Screenshot 2026-09-29 194642" src="https://github.com/user-attachments/assets/b1daab23-b422-4a6d-b4d6-9fcb0d347e62" />
+<img width="178" height="173" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
+
 
 
 After trailing 20 frames back from the last "possesd" frame before the ball changed its state to a loose state and avereging the shot coordinate we can see better result in the shot mapping, (if the shooter's velocity is high trails 8 frmaes back instead).
