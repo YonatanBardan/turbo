@@ -15,7 +15,7 @@
 
 ## System pipline:
 
-    1) Detection model extract detection boxes from the video that recieved and using 2 BOT-SORT custom  configs for better management of players occluisions and ball tracking. For any id the model generates we save "best" image crops and later transform those 15 images into vectors that will distinguish each player from another (Using: osnet_ain_x1_0 model). Later the list of detection box and roster vectors are transfer to the java backend - there another cleaned phase is happening merging similer player.
+    1) Detection model extract detection boxes from a video and using 2 BOT-SORT custom  configs for better management of players occluisions and ball tracking. For any id the model generates we save "best" image crops and later transform those 15 images into vectors that will distinguish each player from another (Using: osnet_ain_x1_0 model). Later the list of detection box and roster vectors are transfer to the java backend - there another cleaned phase is happening merging similer player.
 
     2) FSM - the system tracks the ball state in each frame - ball losse, ball posssed, ball shot.
     When a shot is detected the system based on the parabolic trajectory of the ball based of the ball center coordinates and calculate the expected coordinate in the hoop Y coordinate level. then use the hoop width to assign a score for the ball trajectory made/miss. In addition, the system uses a visualProbability as the actual ball coordinate when crossing the hoop y coordinate for better average accurate result.
