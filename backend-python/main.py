@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 
 from dto import VideoAnalysisRequest, RenderRequest
 from services.analyzer.video_analyzer import process_video
-from services.video_renderer import create_scoreboard_video
+from services.render.video_renderer import create_scoreboard_video
 
 app = FastAPI()
 
@@ -14,13 +14,14 @@ app = FastAPI()
 def analyze_video(request: VideoAnalysisRequest):
 
     try:
-        fps, boxes_data, players, total_frames = process_video(request.videoPath)
+        fps, boxes_data, players, total_frames, court_keypoints = process_video(request.videoPath)
 
         return {
             "fps": fps,
             "totalFrames": total_frames,
             "detections": boxes_data,
             "players": players,
+            "courtKeypoints": court_keypoints
         }
     except Exception as e:
         traceback.print_exc()

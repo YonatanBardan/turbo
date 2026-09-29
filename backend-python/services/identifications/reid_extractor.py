@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 _SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_PATH = os.path.normpath(
-    os.path.join(_SERVICES_DIR, "..", "models", "osnet_ain_x1_0_msmt17_256x128.pth")
+    os.path.join(_SERVICES_DIR, "..", "..", "models", "osnet_ain_x1_0_msmt17_256x128.pth")
 )
 MODEL_NAME = "osnet_ain_x1_0"
 

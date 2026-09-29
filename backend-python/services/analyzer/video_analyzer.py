@@ -5,18 +5,20 @@ import time
 import cv2 # Computer Vision Library - 3D NumPy Arrays
 from ultralytics import YOLO
 
-from services.analyzer.config import MODEL_PATH, PLAYER_TRACKER_PATH, BALL_TRACKER_PATH, BALL_CLASS_ID, HOOP_CLASS_ID, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
-from services.identity_linker import IdentityLinker
-from services.reid_extractor import extract as extract_reid_vectors
-from services.reid_extractor import is_available as reid_is_available
+from services.analyzer.config import MODEL_PATH, COURT_MODEL_PATH, PLAYER_TRACKER_PATH, BALL_TRACKER_PATH, BALL_CLASS_ID, HOOP_CLASS_ID, PLAYER_CLASS_ID, REID_REFRESH_SECONDS, EDGE_MARGIN, MIN_HEIGHT, MIN_ASPECT, MAX_ASPECT
+from services.identifications.identity_linker import IdentityLinker
+from services.identifications.reid_extractor import extract as extract_reid_vectors
+from services.identifications.reid_extractor import is_available as reid_is_available
 from services.analyzer.utils import _rewrite_track_id
 from services.analyzer.crops import _crop_score, _crop_player, _keep_top_crop, _merge_galleries
 
+
 model = YOLO(MODEL_PATH, task="detect")
+court_model = YOLO(COURT_MODEL_PATH, task="pose")
 logger = logging.getLogger(__name__)
 
 # Process the video and return the fps, boxes data, and players vectors
-def process_video(file_path: str) -> tuple[float, list, list, int]:
+def process_video(file_path: str) -> tuple[float, list, list, int, list]:
 
     cap = cv2.VideoCapture(file_path)
     if not cap.isOpened():
@@ -34,6 +36,7 @@ def process_video(file_path: str) -> tuple[float, list, list, int]:
     refresh_gap = max(1, int(fps * REID_REFRESH_SECONDS)) # Cooldown timer for a new crop
 
     boxes_data = []
+    court_keypoints = []
     crop_gallery = {}
     last_reid_frame = {} # Last crop taken for each player
     frame_index = 0
@@ -44,6 +47,14 @@ def process_video(file_path: str) -> tuple[float, list, list, int]:
         ret, frame = cap.read()
         if not ret:
             break
+
+        # Court ckeypoints calculation and appending to the court_keypoints list    
+        if frame_index % 30 == 0:
+            keypoints = detect_court_keypoints(frame, frame_index, court_model) 
+            if keypoints is not None:
+                court_keypoints.append({"frameIndex": int(frame_index), "corners": keypoints}) # Append the court keypoints to the court_keypoints list
+
+
 
         parsed, current_ids = _detect_and_parse_frame(model, frame, player_tracker, ball_tracker, stats, linker) # Detect once, then track players and the ball separately
         players = [p for p in parsed if p["classId"] == PLAYER_CLASS_ID and p["trackId"] >= 0]
@@ -120,7 +131,7 @@ def process_video(file_path: str) -> tuple[float, list, list, int]:
         frame_index / elapsed,
     )
 
-    return fps, boxes_data, players, frame_index
+    return fps, boxes_data, players, frame_index, court_keypoints
 
 
 # -----------------------------
@@ -136,6 +147,18 @@ def _timed_extract(crops: list, stats: dict) -> list[list[float]]:
     stats["reid_ms"] += (time.perf_counter() - started) * 1000.0 # close timer
     stats["reid_crops"] += len(crops)
     return vectors
+
+def detect_court_keypoints(frame: object, frame_index: int, court_model:YOLO) -> list:
+    results = court_model.predict(frame, verbose=False)     # Predict the court keypoints
+    if not results or results[0].keypoints is None or len(results[0].keypoints) == 0:
+        return None
+    
+    points = results[0].keypoints.xy[0].tolist() # Convert the keypoints tensor to a list of x, y coordinates of the first court
+    ready_points = []
+    for point in points:
+        point_dict ={"x": float(point[0]), "y": float(point[1])} # Convert the point tensor to a dictionary of x, y coordinates
+        ready_points.append(point_dict)
+    return ready_points
 
 def _make_tracker(path: str):
     from ultralytics.trackers.bot_sort import BOTSORT

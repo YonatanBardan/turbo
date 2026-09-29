@@ -1,5 +1,7 @@
 package com.turbo.backend_analytics.dto;
 
+import com.turbo.backend_analytics.dto.Player.Player;
+
 import java.util.List;
 import java.util.Map;
 

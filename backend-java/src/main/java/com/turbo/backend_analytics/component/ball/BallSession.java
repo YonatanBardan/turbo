@@ -1,8 +1,8 @@
 package com.turbo.backend_analytics.component.ball;
 
 import com.turbo.backend_analytics.dto.DetectionBox;
-import com.turbo.backend_analytics.dto.PlayerStats;
-import com.turbo.backend_analytics.dto.Shot;
+import com.turbo.backend_analytics.dto.Player.PlayerStats;
+import com.turbo.backend_analytics.dto.Shot.Shot;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,6 +25,8 @@ class BallSession {
     static final int MISSING_BALL_PASS_FRAMES = 2;
     static final int SHOT_LOOKBACK_FRAMES =35;
     static final double ASSIST_WINDOW_SECONDS = 3.0;
+    static final int TAKEOFF_LOOKBACK_FRAMES = 20;   // frames before the release to search for the take-off box
+    static final int DYNAMIC_LOOKBACK_FRAMES = 13;    // frames before the shot to search for the dynamic lookback
 
     enum Phase { POSSESSED, LOOSE, SHOT }
 
@@ -191,6 +193,50 @@ class BallSession {
             }
         }
         return lastHolderBox;
+    }
+
+    // The release box is taken at the top of the jump, so its feet point projects too deep on the
+    // court (the homography assumes the feet are on the floor). Within the last TAKEOFF_LOOKBACK_FRAMES
+    // before the release, the frame where the shooter's bottom edge is lowest on screen is the last
+    // ground contact before take-off - a jumper lands right where they took off, so map from there.
+    DetectionBox resolveShotGroundBox(int shotFrame, int shooterId) {
+        DetectionBox grounded = null;
+        double lowestFeetY = Double.NEGATIVE_INFINITY;
+        int from = Math.max(0, shotFrame - TAKEOFF_LOOKBACK_FRAMES);
+
+        // Check if the player moved fast to better detect the shooter feet location.
+        DetectionBox currentBox = possessionByFrame.get(shotFrame - 1);
+        DetectionBox pastBox = null;
+        // Find the player's location ~10 frames ago to measure speed
+        for (int f = shotFrame - 2; f >= Math.max(0, shotFrame - 10); f--) {
+            DetectionBox b = possessionByFrame.get(f);
+            if (b != null && b.trackId() == shooterId) {
+                pastBox = b;
+            }
+        }
+
+        // If the player moved fast, use the dynamic lookback frames to look back less frames.
+        if (pastBox != null && currentBox != null) {
+            double deltaX = currentBox.x() - pastBox.x();
+            double deltaY = currentBox.y() - pastBox.y();
+            double speed = Math.hypot(deltaX, deltaY);
+            if (speed / (currentBox.frameIndex() - pastBox.frameIndex()) > 6.0) {
+                from = Math.max(0, shotFrame - DYNAMIC_LOOKBACK_FRAMES);
+            }
+        }
+
+        for (int f = shotFrame - 1; f >= from; f--) {
+            DetectionBox box = possessionByFrame.get(f);
+            if (box == null || box.trackId() != shooterId) {
+                continue;
+            }
+            double feetY = box.y() + box.height();  // screen Y grows downward - larger means closer to the floor
+            if (feetY > lowestFeetY) {
+                lowestFeetY = feetY;
+                grounded = box;
+            }
+        }
+        return grounded != null ? grounded : resolveShotShooterBox(shotFrame, shooterId);
     }
 
     String overlayLabel() {

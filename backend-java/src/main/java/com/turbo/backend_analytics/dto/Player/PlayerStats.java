@@ -1,4 +1,6 @@
-package com.turbo.backend_analytics.dto;
+package com.turbo.backend_analytics.dto.Player;
+
+import com.turbo.backend_analytics.dto.Shot.Shot;
 
 import java.util.List;
 

@@ -11,6 +11,8 @@ class ShotData(BaseModel):
     passerTrackId: int = -1
     assist: bool = False
     makeProbability: float = 0.0
+    mapped_x: float = 0.0   # 2D court x (cm) from the Java homography, 0 when unmapped
+    mapped_y: float = 0.0   # 2D court y (cm) from the Java homography, 0 when unmapped
 
 class DetectionData(BaseModel):
     frameIndex: int

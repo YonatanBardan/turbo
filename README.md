@@ -6,13 +6,14 @@
 
 ### The project using two finetuned models:
      - Yolo26l for basketball detection (Classes: 0-ball, 1-hoop, 2-player).
-     - Yolo26x for court keypoints detection (Classes - paint-left, paint-right, freethrow-left, freethrow-right)
+     - Yolo26x for court keypoints detection (Classes - paint-left, paint-right, freethrow-left,        freethrow-right)
 ### Both models trained based on different suitable 4000 images datasets
  (https://universe.roboflow.com/yonatans-workspace1/basketball-players-hoop-ball-detection2, https://universe.roboflow.com/yonatans-workspace1/court-detection-nd7jl)
 
 ---
 
 ## System pipline:
+
     1) Detection model extract detection boxes from the video that recieved and using 2 BOT-SORT custom  configs for better management of players occluisions and ball tracking. For any id the model generates we save "best" image crops and later transform those 15 images into vectors that will distinguish each player from another (Using: osnet_ain_x1_0 model). Later the list of detection box and roster vectors are transfer to the java backend - there another cleaned phase is happening merging similer player.
 
     2) FSM - the system tracks the ball state in each frame - ball losse, ball posssed, ball shot.
@@ -24,8 +25,11 @@
 
 
 ## Phase 1 - Player Shootaround:
+IN this phase the main goals are to be able to detect miss/made shots and to map the shots' locations in the half court 2D plain. we can see that in the video below the court is well drained with nearly invisible lines. the model lack accuracy but manage throgh it.
+In addition, the shot location set to be as of the last "possesd" frame which causing higher jumped shots to record a farther y location on the 2D map.
 
 
+After trailing 20 frames back from the last "possesd" frame before the ball changed its state to a loose state and avereging the shot coordinate we can see better result in the shot mapping, (if the shooter's velocity is high trails 8 frmaes back instead).
 ## Phase 2 - 1X1 game:
 
 ## License

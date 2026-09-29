@@ -1,6 +1,6 @@
 package com.turbo.backend_analytics.util;
 
-import com.turbo.backend_analytics.dto.ScoredAppearanceVector;
+import com.turbo.backend_analytics.dto.Player.ScoredAppearanceVector;
 
 import java.util.ArrayList;
 import java.util.Comparator;

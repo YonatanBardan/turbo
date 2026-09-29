@@ -5,6 +5,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(_CURRENT_DIR))
 PLAYER_TRACKER_PATH = os.path.normpath(os.path.join(ROOT_DIR, "player_bytetrack.yaml"))  # player BoT-SORT config
 BALL_TRACKER_PATH = os.path.normpath(os.path.join(ROOT_DIR, "ball_bytetrack.yaml"))  # ball BoT-SORT config
 MODEL_PATH = os.path.normpath(os.path.join(ROOT_DIR, "models", "best-Yolol26-0.929-0.636_openvino_model"))
+COURT_MODEL_PATH = os.path.normpath(os.path.join(ROOT_DIR, "models", "best-CourtDetection-28-09-26_openvino_model"))
 
 # YOLO and tracking limits
 BALL_CLASS_ID = 0

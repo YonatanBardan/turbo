@@ -2,7 +2,7 @@ package com.turbo.backend_analytics.component.ball;
 
 import com.turbo.backend_analytics.component.ShotPhysicsEngine;
 import com.turbo.backend_analytics.dto.DetectionBox;
-import com.turbo.backend_analytics.dto.Shot;
+import com.turbo.backend_analytics.dto.Shot.Shot;
 
 import java.util.List;
 import java.util.Map;
@@ -20,12 +20,8 @@ class BallShotHandler {
         this.physicsEngine = physicsEngine;
     }
 
-    void handleShot(
-            Map<Integer, List<DetectionBox>> frames,
-            int frame,
-            int maxFrame,
-            BallSession session
-    ) {
+    void handleShot(Map<Integer, List<DetectionBox>> frames, int frame, int maxFrame, BallSession session) {
+
         ShotPhysicsEngine.ShotFlight flight = physicsEngine.analyzeFlight(
                 session.hoop,
                 frames,
@@ -56,6 +52,7 @@ class BallShotHandler {
         if (shooterBox == null || session.hoop == null || shooterId < 0) {
             return;
         }
+        DetectionBox groundBox = session.resolveShotGroundBox(countStart, shooterId);  // take-off box for the 2D court mapping
 
         Optional<Shot> generated = physicsEngine.generateShot(
                 session.hoop,
@@ -70,7 +67,7 @@ class BallShotHandler {
                     && (finalFrame - session.lastPassFrame) <= session.assistWindowFrames;
             Shot raw = generated.get();
             boolean assist = raw.isMake() && recentPass;
-            Shot credited = raw.withCredit(shooterId, recentPass ? session.lastPasserId : -1, assist);
+            Shot credited = raw.withCredit(shooterId, recentPass ? session.lastPasserId : -1, assist).withGroundBox(groundBox);
             session.shots.add(credited);
             session.creditStats(credited);
         }

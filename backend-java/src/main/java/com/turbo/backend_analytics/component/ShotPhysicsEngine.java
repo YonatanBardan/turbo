@@ -1,7 +1,7 @@
 package com.turbo.backend_analytics.component;
 
 import com.turbo.backend_analytics.dto.DetectionBox;
-import com.turbo.backend_analytics.dto.Shot;
+import com.turbo.backend_analytics.dto.Shot.Shot;
 import com.turbo.backend_analytics.util.TimeUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -13,6 +13,7 @@ import java.util.Optional;
 
 import static com.turbo.backend_analytics.util.GeometryUtil.centerY;
 import static com.turbo.backend_analytics.util.GeometryUtil.findHighestConfidence;
+import static com.turbo.backend_analytics.util.GeometryUtil.findAllClass;
 
 @Component
 public class ShotPhysicsEngine {
@@ -25,58 +26,58 @@ public class ShotPhysicsEngine {
     @Autowired
     private TrajectoryMath trajectoryMath;
 
-    public ShotFlight analyzeFlight(
-            DetectionBox hoop,
-            Map<Integer, List<DetectionBox>> frames,
-            int startFrame,
-            int maxFrame,
-            List<DetectionBox> alreadyTracked,
-            DetectionBox shooter
+    public ShotFlight analyzeFlight(DetectionBox hoop, Map<Integer, List<DetectionBox>> frames, int startFrame,
+                                    int maxFrame, List<DetectionBox> alreadyTracked, DetectionBox shooter
     ) {
+        
         List<DetectionBox> path = new ArrayList<>();
-        if (alreadyTracked != null) {
-            for (DetectionBox tracked : alreadyTracked) {
-                if (isOnShotPath(tracked, shooter)) {
-                    path.add(tracked);
-                }
-            }
-        }
+        int updatedStartFrame = startFrame;
+        
         DetectionBox liveHoop = hoop;
         boolean reachedHoopHeight = false;
         double peakY = Double.MAX_VALUE;
-        DetectionBox lastBall = path.isEmpty() ? null : path.getLast();
-        int endFrame = startFrame;
 
-        for (int f = startFrame; f <= maxFrame; f++) {
+        DetectionBox lastBall = null;
+        int endFrame = updatedStartFrame;
+
+        for (int f = updatedStartFrame; f <= maxFrame; f++) {
             List<DetectionBox> boxes = frames.getOrDefault(f, List.of());
             DetectionBox hoopNow = findHighestConfidence(boxes, HOOP);
             if (hoopNow != null) {
                 liveHoop = hoopNow;
             }
-            DetectionBox ball = findHighestConfidence(boxes, BALL);
-            if (ball == null) {
-                continue;
-            }
-            // Screen Y grows downward. Keep a ball only above 120% of the last possessed shooter Y.
-            if (isOnShotPath(ball, shooter) && (lastBall == null || ball.frameIndex() != lastBall.frameIndex())) {
-                path.add(ball);
+
+            List<DetectionBox> ballsInFrame = findAllClass(boxes, BALL);                   // Grabs all balls in the frame
+            DetectionBox trackerBall = identifyTrueBall(ballsInFrame, shooter, lastBall);  // Identify the true ball in the frame
+
+            // If no valid ball was found in this frame, skip to the next frame
+            if (trackerBall == null) {
+                continue; 
             }
 
-            double y = centerY(ball);
+            // Add the remaining tracker ball to the path
+            path.add(trackerBall);
+
+            double y = centerY(trackerBall);
             peakY = Math.min(peakY, y);
             double hoopBottom = liveHoop != null ? liveHoop.y() + liveHoop.height() : y;
+            
             if (y <= hoopBottom) {
                 reachedHoopHeight = true;
             }
 
+            // Calculate shot state for our break conditions
             boolean falling = lastBall != null && y > centerY(lastBall) + 2.0;
             boolean belowHoop = y > hoopBottom;
-            lastBall = ball;
+            
+            lastBall = trackerBall;
             endFrame = f;
 
+            // Break condition 1: The ball reached the hoop, is falling, and passed below it
             if (reachedHoopHeight && falling && belowHoop) {
                 break;
             }
+            // Break condition 2: Airball - ball peaked, is falling, but never reached hoop height
             if (!reachedHoopHeight && falling && y > peakY + 12.0) {
                 break;
             }
@@ -85,6 +86,7 @@ public class ShotPhysicsEngine {
         return new ShotFlight(endFrame, path);
     }
 
+    // Checks if the ball is on the shot path
     private static boolean isOnShotPath(DetectionBox ball, DetectionBox shooter) {
         if (ball == null) {
             return false;
@@ -92,8 +94,8 @@ public class ShotPhysicsEngine {
         if (shooter == null) {
             return true;
         }
-        // 120% of the last possessed shooter bounding box
-        double limit = shooter.y() * 1.25;
+        // 110% of the last possessed shooter bounding box
+        double limit = shooter.y() + (shooter.height() * 0.1);
         return centerY(ball) <= limit;
     }
 
@@ -122,7 +124,7 @@ public class ShotPhysicsEngine {
 
         int bounceIndex = -1;
 
-        // Scan the path for a sudden change in horizontal speed inside the Backboard Zone
+        /*// Scan the path for a sudden change in horizontal speed inside the Backboard Zone
         for (int i = 2; i < ballPath.size(); i++) {
             DetectionBox past = ballPath.get(i - 2);
             DetectionBox prev = ballPath.get(i - 1);
@@ -146,7 +148,7 @@ public class ShotPhysicsEngine {
                     break;
                 }
             }
-        }
+        }*/
 
         List<DetectionBox> mathPath = ballPath;
         // Calculate the center of the hoop
@@ -184,7 +186,7 @@ public class ShotPhysicsEngine {
                 // If the ball width is abnormally large/small compared to the hoop, 
                 // it is an optical illusion falling between the camera and the rim.
                 double scaleRatio = ball.width() / hoop.width();
-                if (scaleRatio > 0.85 || scaleRatio < 0.30) {
+                if (scaleRatio > 0.85 || scaleRatio < 0.15) {
                     continue; // Skip this frame
                 }
                 // ------------------------------------------
@@ -219,7 +221,7 @@ public class ShotPhysicsEngine {
             }
         }
 
-        // UPDATED MATH: Flattened Probability Curve using Normalized Ratios
+        // Flattened Probability Curve using Normalized Ratios
         double hoopRadius = hoop.width() / 2.0;
         double visualProbability;
         
@@ -241,5 +243,45 @@ public class ShotPhysicsEngine {
         probability = Math.min(1.0, Math.max(0.0, probability));
 
         return (probability * 0.4) + (visualProbability * 0.6);
+    }
+
+    private static DetectionBox identifyTrueBall(List<DetectionBox> ballsInFrame, DetectionBox shooter, DetectionBox lastBall) {
+        DetectionBox trackerBall = null;
+
+        if (lastBall == null && shooter != null) {
+            double bestDistance = Double.MAX_VALUE;
+
+            for (DetectionBox b : ballsInFrame) {  // Find the ball physically closest to the shooter
+                if (isOnShotPath(b, shooter)) {
+                    double distance = Math.hypot(b.x() - shooter.x(), b.y() - shooter.y());
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        trackerBall = b;
+                    }
+                }
+            }
+        } else if (lastBall != null) {
+            double bestDistance = Double.MAX_VALUE;
+
+            for (DetectionBox b : ballsInFrame) {   // Find the ball physically closest to the previous ball
+                if (isOnShotPath(b, shooter)) {
+                    double distance = Math.hypot(b.x() - lastBall.x(), b.y() - lastBall.y());
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        trackerBall = b;
+                    }
+                }
+            }
+        } else {
+            double bestScore = -1.0;
+            for (DetectionBox b : ballsInFrame) {   // Find the ball with the highest confidence
+                if (isOnShotPath(b, shooter) && b.confidence() > bestScore) {
+                    bestScore = b.confidence();
+                    trackerBall = b;
+                }
+            }
+        }
+
+        return trackerBall;
     }
 }

@@ -1,8 +1,8 @@
 package com.turbo.backend_analytics.controller;
 
-import com.turbo.backend_analytics.dto.Player;
-import com.turbo.backend_analytics.dto.PlayerStatView;
-import com.turbo.backend_analytics.dto.VideoAnalysisResponse;
+import com.turbo.backend_analytics.dto.Player.Player;
+import com.turbo.backend_analytics.dto.Player.PlayerStatView;
+import com.turbo.backend_analytics.dto.Response.VideoAnalysisResponse;
 import com.turbo.backend_analytics.service.AiAnalysisService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -61,6 +61,8 @@ public class VideoAnalysisController {
         }
     }
 
+    
+    // Prints the pipeline speed
     private static void printPipelineSpeed(long startedNanos, int frameCount) {
         double seconds = (System.nanoTime() - startedNanos) / 1_000_000_000.0;
         double framesPerSecond = frameCount / Math.max(seconds, 1e-6);
@@ -72,6 +74,7 @@ public class VideoAnalysisController {
         );
     }
 
+    // Converts the players to player stats
     private static List<PlayerStatView> toPlayerStats(List<Player> players) {
         List<PlayerStatView> stats = new ArrayList<>();
         if (players == null) {

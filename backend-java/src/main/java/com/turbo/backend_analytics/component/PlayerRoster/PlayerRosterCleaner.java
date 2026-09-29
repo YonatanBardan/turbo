@@ -1,10 +1,10 @@
-package com.turbo.backend_analytics.component;
+package com.turbo.backend_analytics.component.PlayerRoster;
 
 import com.turbo.backend_analytics.dto.DetectionBox;
-import com.turbo.backend_analytics.dto.Player;
-import com.turbo.backend_analytics.dto.PlayerStats;
+import com.turbo.backend_analytics.dto.Player.Player;
+import com.turbo.backend_analytics.dto.Player.PlayerStats;
+import com.turbo.backend_analytics.dto.Player.ScoredAppearanceVector;
 import com.turbo.backend_analytics.dto.RosterCleanupResult;
-import com.turbo.backend_analytics.dto.ScoredAppearanceVector;
 import com.turbo.backend_analytics.util.AppearanceSimilarity;
 import org.springframework.stereotype.Component;
 

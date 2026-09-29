@@ -5,7 +5,7 @@ import numpy as np
 
 from services.analyzer.config import EDGE_MARGIN, MAX_ASPECT, MIN_HEIGHT
 from services.analyzer.utils import _iou
-from services.reid_extractor import cosine_similarity, update_appearance
+from services.identifications.reid_extractor import cosine_similarity, update_appearance
 
 logger = logging.getLogger(__name__)
 
