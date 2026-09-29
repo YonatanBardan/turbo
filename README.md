@@ -27,10 +27,25 @@
 ## Phase 1 - Player Shootaround:
 IN this phase the main goals are to be able to detect miss/made shots and to map the shots' locations in the half court 2D plain. we can see that in the video below the court is well drained with nearly invisible lines. the model lack accuracy but manage throgh it.
 In addition, the shot location set to be as of the last "possesd" frame which causing higher jumped shots to record a farther y location on the 2D map.
-<img width="463" height="498" alt="Screenshot 2026-09-29 194543" src="https://github.com/user-attachments/assets/709860c1-50f3-46cd-ab1b-27cb7bb999df" />
-<img width="381" height="350" alt="Screenshot 2026-09-29 194702" src="https://github.com/user-attachments/assets/572d517e-b2b5-4b5a-8857-21ef525cd3fa" />
-<img width="229" height="402" alt="Screenshot 2026-09-29 194642" src="https://github.com/user-attachments/assets/b1daab23-b422-4a6d-b4d6-9fcb0d347e62" />
-<img width="178" height="173" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
+
+<table>
+  <tr>
+    <td align="center">
+      <img width="463" height="498" alt="Screenshot 2026-09-29 194543" src="https://github.com/user-attachments/assets/709860c1-50f3-46cd-ab1b-27cb7bb999df" />
+    </td>
+    <td align="center">
+      <img width="178" height="173" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
+    </td>
+  </tr>
+  <tr>
+     <td align="center">
+      <img width="381" height="350" alt="Screenshot 2026-09-29 194702" src="https://github.com/user-attachments/assets/572d517e-b2b5-4b5a-8857-21ef525cd3fa" />
+    </td>
+    <td align="center">
+      <img width="229" height="402" alt="Screenshot 2026-09-29 194642" src="https://github.com/user-attachments/assets/b1daab23-b422-4a6d-b4d6-9fcb0d347e62" />
+    </td>
+   </tr>
+</table>
 
 
 
