@@ -31,18 +31,18 @@ In addition, the shot location set to be as of the last "possesd" frame which ca
 <table>
   <tr>
     <td align="center">
-      <img width="350" height="200" alt="Screenshot 2026-09-29 194543" src="https://github.com/user-attachments/assets/709860c1-50f3-46cd-ab1b-27cb7bb999df" />
+      <img width="350" height="400" alt="Screenshot 2026-09-29 194543" src="https://github.com/user-attachments/assets/709860c1-50f3-46cd-ab1b-27cb7bb999df" />
     </td>
     <td align="center">
-      <img width="350" height="200" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
+      <img width="350" height="400" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
     </td>
   </tr>
   <tr>
-     <td align="center">
-      <img width="350" height="200" alt="Screenshot 2026-09-29 194702" src="https://github.com/user-attachments/assets/572d517e-b2b5-4b5a-8857-21ef525cd3fa" />
-    </td>
+       <td align="center">
+            <img width="350" height="400" alt="Screenshot 2026-09-30 022450" src="https://github.com/user-attachments/assets/8b944873-3bbb-4d53-895d-e876fb0a09d5" />
+       </td>
     <td align="center">
-      <img width="350" height="200" alt="Screenshot 2026-09-29 194642" src="https://github.com/user-attachments/assets/b1daab23-b422-4a6d-b4d6-9fcb0d347e62" />
+       <img width="200" height="400" alt="Screenshot 2026-09-30 022522" src="https://github.com/user-attachments/assets/7b8dc883-1b59-4a91-b26b-aa7aa0626ed5" />
     </td>
    </tr>
 </table>
@@ -51,6 +51,10 @@ In addition, the shot location set to be as of the last "possesd" frame which ca
 
 After trailing 20 frames back from the last "possesd" frame before the ball changed its state to a loose state and avereging the shot coordinate we can see better result in the shot mapping, (if the shooter's velocity is high trails 8 frmaes back instead).
 ## Phase 2 - 1X1 game:
+
+
+https://github.com/user-attachments/assets/a7aff5fb-11ff-4e0d-b11c-9ff50cdb9e90
+
 
 ## License
 
