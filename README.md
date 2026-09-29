@@ -37,6 +37,9 @@ In addition, the shot location set to be as of the last "possesd" frame which ca
     <td align="center">
       <img width="200" height="400" alt="Screenshot 2026-09-29 194556" src="https://github.com/user-attachments/assets/b0c08779-8703-4682-b5e1-ab9df487d723" />
     </td>
+      <td>
+          <img width="200" height="400" alt="Screenshot 2026-09-30 024759" src="https://github.com/user-attachments/assets/64f1ba7f-8e02-43db-9322-197f87df7745" />
+      </td>
   </tr>
   <tr>
        <td align="center">
@@ -45,6 +48,9 @@ In addition, the shot location set to be as of the last "possesd" frame which ca
     <td align="center">
        <img width="200" height="400" alt="Screenshot 2026-09-30 022522" src="https://github.com/user-attachments/assets/7b8dc883-1b59-4a91-b26b-aa7aa0626ed5" />
     </td>
+      <td>
+          <img width="200" height="400" alt="Screenshot 2026-09-30 024818" src="https://github.com/user-attachments/assets/7a2bdae0-20cc-47e8-9357-572cf6d74852" />
+      </td>
    </tr>
 </table>
 
