@@ -1,6 +1,9 @@
 # Basketball logic analyzer project
 
-### This project main purpose is to analyze 3X3 streetball basketball game video that had been shot from a standing courtside persperctive. First goal is to be able to detect basketball logic correctly on a one man shootaround video. Second goal, is to manage basketball logic for a 1X1 streetball game. Third - 2X2 and laslty 3X3 game.
+### This project main purpose is to analyze 3X3 streetball basketball game video that had been shot from a standing courtside persperctive. First goal is to be able to detect 
+basketball logic correctly on a one man shootaround video. Second goal, is to manage basketball logic for a 1X1 streetball game. Third - 2X2 and laslty 3X3 game.
+
+https://github.com/user-attachments/assets/83ff7f88-99b7-4f0e-8bff-6d4c8d37ca02
 
 ## Models used
 
@@ -58,7 +61,6 @@ In addition, the shot location set to be as of the last "possesd" frame which ca
 
 After trailing 20 frames back from the last "possesd" frame before the ball changed its state to a loose state and avereging the shot coordinate we can see better result in the shot mapping, (if the shooter's velocity is high trails 8 frmaes back instead).
 
-https://github.com/user-attachments/assets/83ff7f88-99b7-4f0e-8bff-6d4c8d37ca02
 
 ## Phase 2 - 1X1 game:
 N/A
