@@ -1,8 +1,7 @@
 # Basketball logic analyzer project
 
 ### This project main purpose is to analyze 3X3 streetball basketball game video that had been shot from a standing courtside persperctive. First goal is to be able to detect 
-basketball logic correctly on a one man shootaround video. Second goal, is to manage basketball logic for a 1X1 streetball game. Third - 2X2 and laslty 3X3 game.
-## written with ai assistance
+basketball logic correctly on a one man shootaround video. Second goal, is to manage basketball logic for a 1X1 streetball game. Third - 2X2 and laslty 3X3 game. (written with ai assistance)
 
 https://github.com/user-attachments/assets/83ff7f88-99b7-4f0e-8bff-6d4c8d37ca02
 
